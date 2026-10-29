@@ -29,7 +29,7 @@
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body {
   font: 16px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
-  padding: env(safe-area-inset-top) 16px calc(96px + env(safe-area-inset-bottom));
+  padding: env(safe-area-inset-top) 16px calc(170px + env(safe-area-inset-bottom));
   min-height: 100vh;
   -webkit-user-select: none; user-select: none;
 }
@@ -91,10 +91,10 @@ h2 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 24px 4px 8p
 .set-row .chev::after { content: " ›"; }
 .hint { color: var(--muted); font-size: 13px; margin: 8px 4px 0; }
 
-/* Tab 栏 + 悬浮按钮（放在右下，右手拇指可及） */
+/* Tab 栏 + 悬浮按钮（在 Tab 栏上方右下角，右手拇指可及） */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-  display: flex; padding: 6px 96px calc(6px + env(safe-area-inset-bottom)) 8px;
+  display: flex; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--card) 92%, transparent);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--line);
@@ -103,7 +103,7 @@ h2 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 24px 4px 8p
 .tabbar .ico { font-size: 20px; line-height: 1; }
 .tabbar button.active { color: var(--brand); font-weight: 600; }
 #fab {
-  position: fixed; z-index: 11; right: 16px; bottom: calc(14px + env(safe-area-inset-bottom));
+  position: fixed; z-index: 11; right: 16px; bottom: calc(81px + env(safe-area-inset-bottom));
   width: 72px; height: 72px; border-radius: 50%;
   background: var(--brand); color: #fff; font-size: 38px; line-height: 1;
   box-shadow: 0 8px 24px rgba(217, 121, 43, .4);

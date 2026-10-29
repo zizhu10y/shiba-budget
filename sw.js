@@ -1,5 +1,5 @@
 // 改动文件后把版本号 +1，让手机上的旧缓存更新
-const CACHE = 'shiba-budget-v2';
+const CACHE = 'shiba-budget-v3';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
