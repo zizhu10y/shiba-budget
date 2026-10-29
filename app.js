@@ -372,6 +372,7 @@ function openForm(title, html, saveFn, afterRender) {
   $('#formTitle').textContent = title;
   $('#formBody').innerHTML = html;
   onFormSave = saveFn;
+  $('#formBody').oninput = null;
   afterRender && afterRender($('#formBody'));
   open('#formSheet');
 }
@@ -395,8 +396,7 @@ function amountFreqForm(title, field, freqField, freqs, label) {
         const v = toMonth(num(form.amt.value), form.freq.value);
         form.querySelector('[data-calc]').textContent = form.freq.value === 'month' ? '' : `≈ 每月 ${money(v)}`;
       };
-      form.addEventListener('input', upd);
-      form.addEventListener('segchange', upd);
+      form.oninput = upd;
       upd();
       setTimeout(() => form.amt.focus(), 250);
     });
@@ -524,7 +524,7 @@ document.addEventListener('click', (e) => {
     const seg = t.parentElement;
     seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === t));
     seg.nextElementSibling.value = d.v;
-    seg.dispatchEvent(new Event('segchange', { bubbles: true }));
+    seg.dispatchEvent(new Event('input', { bubbles: true }));
     return;
   }
   if ('addLine' in d) return $('[data-lines]').insertAdjacentHTML('beforeend', fixedLine());
