@@ -21,9 +21,14 @@ const CATS = [
 
 const blank = () => ({
   v: 1,
-  settings: { income: 0, incomeFreq: 'month', rent: 0, rentFreq: CUR_CFG.rentFreq, fixed: [] },
+  // incomeMode：'fixed' = 固定收入（按设置换算）；'weekly' = 每周不固定，按实际到账记录
+  settings: { income: 0, incomeFreq: 'month', incomeMode: 'fixed', rent: 0, rentFreq: CUR_CFG.rentFreq, fixed: [] },
   expenses: [],
+  incomes: [],
   goals: [],
+  // 小金猪（总积蓄）的进出记录；每条记录和目标存款一样带 month 标记：
+  // month !== false 表示这笔钱来自/回到当月收入，会算进当月；false = 已有积蓄或积蓄之间挪动，不算任何月
+  piggy: [],
 });
 
 let state = load();
@@ -66,18 +71,41 @@ function fixedMonthly() {
   const s = state.settings;
   return toMonth(s.rent, s.rentFreq) + s.fixed.reduce((a, f) => a + toMonth(f.amount, f.freq), 0);
 }
-// 某个月（'YYYY-MM'）的收支；收入和固定支出按当前设置计算
+const variableIncome = () => state.settings.incomeMode === 'weekly';
+const hasIncome = () => (variableIncome() ? state.incomes.length > 0 : state.settings.income > 0);
+// 某个月（'YYYY-MM'）的收支；固定支出按当前设置计算，
+// 收入：固定模式按设置换算，不固定模式 = 当月实际到账的收入记录之和
+const sum = (arr) => arr.reduce((a, x) => a + x.amount, 0);
+const countsIn = (m) => (x) => x.month !== false && x.date.startsWith(m);
+const goalBalance = (g) => sum(g.deposits);
+const piggyBalance = () => sum(state.piggy);
+// 固定支出：固定收入模式按月全额；每周不固定模式下每周一扣一周的量（月 × 12 ÷ 52），本月只算到今天
+function fixedFor(m) {
+  if (!variableIncome()) return { fixed: fixedMonthly(), weeks: null };
+  const [y, mo] = m.split('-').map(Number);
+  const last = m === thisMonth() ? new Date().getDate() : new Date(y, mo, 0).getDate();
+  let weeks = 0;
+  for (let d = 1; d <= last; d++) if (new Date(y, mo - 1, d).getDay() === 1) weeks++;
+  return { fixed: (fixedMonthly() * 12 / 52) * weeks, weeks };
+}
 function monthStats(m) {
-  const income = toMonth(state.settings.income, state.settings.incomeFreq);
-  const fixed = fixedMonthly();
+  const monthInc = state.incomes.filter((i) => i.date.startsWith(m));
+  const income = variableIncome()
+    ? monthInc.reduce((a, i) => a + i.amount, 0)
+    : toMonth(state.settings.income, state.settings.incomeFreq);
+  const { fixed, weeks } = fixedFor(m);
   const monthExp = state.expenses.filter((e) => e.date.startsWith(m));
   const spent = monthExp.reduce((a, e) => a + e.amount, 0);
-  const saved = state.goals.reduce(
-    (a, g) => a + g.deposits.filter((d) => d.date.startsWith(m)).reduce((x, d) => x + d.amount, 0), 0);
+  // 存起来的钱：所有目标（含已放进小金猪的）和小金猪里，来自当月收入的部分
+  const moves = [...state.goals.flatMap((g) => g.deposits), ...state.piggy].filter(countsIn(m));
+  // 存入、取出分开记（总览里分两行显示），saved 是净额
+  const savedIn = sum(moves.filter((x) => x.amount > 0));
+  const savedOut = -sum(moves.filter((x) => x.amount < 0));
+  const saved = savedIn - savedOut;
   const budget = income - fixed;
   const byCat = {};
   monthExp.forEach((e) => (byCat[e.cat] = (byCat[e.cat] || 0) + e.amount));
-  return { income, fixed, spent, saved, budget, remaining: budget - spent - saved, monthExp, byCat };
+  return { income, fixed, weeks, spent, saved, savedIn, savedOut, budget, remaining: budget - spent - saved, monthExp, monthInc, byCat };
 }
 function summary() {
   const now = new Date();
@@ -97,7 +125,7 @@ function summary() {
 }
 // 第一笔数据所在的月份（没有数据就是本月）
 function firstMonth() {
-  const dates = [...state.expenses.map((e) => e.date), ...state.goals.flatMap((g) => g.deposits.map((d) => d.date))];
+  const dates = [...state.expenses.map((e) => e.date), ...state.incomes.map((i) => i.date), ...state.goals.flatMap((g) => g.deposits.map((d) => d.date)), ...state.piggy.map((p) => p.date)];
   return dates.length ? dates.sort()[0].slice(0, 7) : thisMonth();
 }
 
@@ -111,11 +139,13 @@ function render() {
 
 function homeView() {
   const s = summary();
-  const hasSetup = s.income > 0;
+  const hasSetup = hasIncome();
+  const vi = variableIncome();
   const used = s.budget > 0 ? Math.min(100, ((s.spent + s.saved) / s.budget) * 100) : 0;
   const neg = s.remaining < 0;
-  const mood = !hasSetup ? '🐕 先去「设置」填收入吧' : neg ? '🥺 呜…这个月超支了' : used > 80 ? '🐕 省着点花哦' : '🐕 汪！这个月还能花';
-  const list = s.monthExp.slice().sort((a, b) => (b.date + b.t).localeCompare(a.date + a.t));
+  const mood = !hasSetup ? (vi ? '🐕 发工资了就点 ＋ 记一笔收入' : '🐕 先去「设置」填收入吧') : neg ? '🥺 呜…这个月超支了' : used > 80 ? '🐕 省着点花哦' : '🐕 汪！这个月还能花';
+  const list = [...s.monthExp, ...(vi ? s.monthInc.map((i) => ({ ...i, inc: true })) : [])]
+    .sort((a, b) => (b.date + b.t).localeCompare(a.date + a.t));
   return `
     <h1>${new Date().getMonth() + 1} 月</h1>
     <section class="card hero">
@@ -130,16 +160,22 @@ function homeView() {
     </section>
     ${hasSetup ? homeWarning(s) : ''}
     <section class="card rows">
-      <div class="row"><span>月收入</span><span class="num">${money(s.income)}</span></div>
-      <div class="row"><span>固定支出</span><span class="num">−${money(s.fixed)}</span></div>
+      <div class="row"><span>${vi ? `本月已到账收入${s.monthInc.length ? `（${s.monthInc.length} 笔）` : ''}` : '月收入'}</span><span class="num">${money(s.income)}</span></div>
+      <div class="row"><span>固定支出${s.weeks != null ? `（已扣 ${s.weeks} 周）` : ''}</span><span class="num">−${money(s.fixed)}</span></div>
       <div class="row"><span>本月已花</span><span class="num">−${money(s.spent)}</span></div>
-      ${s.saved ? `<div class="row"><span>存入目标</span><span class="num">−${money(s.saved)}</span></div>` : ''}
+      ${savedRow(s.saved)}
       <div class="row"><span>今天额度</span><span class="num">${money(Math.max(0, s.todayBudget))}</span></div>
       <div class="row"><span>今天已花</span><span class="num">${money(s.spentToday)}</span></div>
     </section>
     <h2>本月明细</h2>
     <div class="list">
       ${list.length ? list.map((e) => {
+        if (e.inc) return `<div class="item">
+          <div class="emoji">💰</div>
+          <div class="mid"><div>收入</div><div>${e.date.slice(5).replace('-', '/')}${e.note ? ' · ' + esc(e.note) : ''}</div></div>
+          <div class="amt num plus">+${money(e.amount)}</div>
+          <button class="del" data-del-inc="${e.id}" aria-label="删除">×</button>
+        </div>`;
         const c = catOf(e.cat);
         return `<div class="item">
           <div class="emoji">${c.e}</div>
@@ -169,12 +205,30 @@ function catBreakdown(byCat) {
   }).join('');
 }
 
-function statRows(s, label) {
+// 当月存钱净额那一行：存的比取的多显示「存起来的钱 −$X」，取的多显示「从积蓄取出 +$X」
+function savedRow(saved) {
+  if (!saved) return '';
+  return saved > 0
+    ? `<div class="row"><span>存起来的钱</span><span class="num">−${money(saved)}</span></div>`
+    : `<div class="row"><span>从积蓄取出</span><span class="num">+${money(-saved)}</span></div>`;
+}
+// label：结余那一行的名字；savedLabel：「共省下」那一行的名字
+function statRows(s, label, savedLabel) {
+  const kept = s.saved + s.remaining;
   return `<div class="row"><span>收入</span><span class="num">${money(s.income)}</span></div>
     <div class="row"><span>固定支出</span><span class="num">−${money(s.fixed)}</span></div>
     <div class="row"><span>日常花销</span><span class="num">−${money(s.spent)}</span></div>
-    ${s.saved ? `<div class="row"><span>存入目标</span><span class="num">−${money(s.saved)}</span></div>` : ''}
-    <div class="row total"><span>${label}</span><span class="num ${s.remaining < 0 ? 'neg' : ''}">${money(s.remaining)}</span></div>`;
+    ${s.savedIn ? `<div class="row"><span>存入积蓄</span><span class="num">−${money(s.savedIn)}</span></div>` : ''}
+    ${s.savedOut ? `<div class="row"><span>从积蓄取出</span><span class="num">+${money(s.savedOut)}</span></div>` : ''}
+    <div class="row total"><span>${label}</span><span class="num ${s.remaining < 0 ? 'neg' : ''}">${money(s.remaining)}</span></div>
+    <div class="kept ${kept < 0 ? 'neg-bg' : ''}">
+      <div><span>🐷 ${savedLabel}</span><b class="num">${money(kept)}</b></div>
+      <small class="num">${[
+        s.savedIn ? `存入 ${money(s.savedIn)}` : '',
+        s.savedOut ? `− 取出 ${money(s.savedOut)}` : '',
+        `${s.savedIn || s.savedOut ? '+ ' : ''}${label} ${money(s.remaining)}`,
+      ].filter(Boolean).join(' ')}</small>
+    </div>`;
 }
 
 function overviewView() {
@@ -196,7 +250,7 @@ function monthOverview() {
     </div>
     <section class="card rows">
       ${over ? `<div class="warn">🥺 这个月超支了 ${money(-s.remaining)}</div>` : ''}
-      ${statRows(s, cur ? '目前剩余' : '当月结余')}
+      ${statRows(s, cur ? '目前剩余' : '当月结余', cur ? '本月目前共省下' : '这个月共省下')}
     </section>
     <h2>分类</h2>
     <div class="list">${catBreakdown(s.byCat)}</div>`;
@@ -208,13 +262,13 @@ function yearOverview() {
   const months = Array.from({ length: 12 }, (_, i) => `${y}-${pad(i + 1)}`);
   const stats = months.map((m) => (m >= start && m <= end ? monthStats(m) : null));
   const counted = stats.filter(Boolean);
-  const tot = { income: 0, fixed: 0, spent: 0, saved: 0, remaining: 0 }, byCat = {};
+  const tot = { income: 0, fixed: 0, spent: 0, saved: 0, savedIn: 0, savedOut: 0, remaining: 0 }, byCat = {};
   counted.forEach((s) => {
     for (const k in tot) tot[k] += s[k];
     for (const c in s.byCat) byCat[c] = (byCat[c] || 0) + s.byCat[c];
   });
   // 柱子 = 日常花销 + 存入目标；虚线 = 每月可花额度
-  const budget = counted[0] ? counted[0].budget : 0;
+  const budget = counted.length ? counted.reduce((a, s) => a + s.budget, 0) / counted.length : 0;
   const max = Math.max(budget, ...counted.map((s) => s.spent + s.saved), 1);
   const overMonths = counted.filter((s) => s.remaining < 0).length;
   return `
@@ -227,7 +281,7 @@ function yearOverview() {
     <section class="card rows">
       ${overMonths ? `<div class="warn">🥺 有 ${overMonths} 个月超支</div>` : ''}
       <div class="row muted-note"><span>统计 ${counted.length} 个月</span><span></span></div>
-      ${statRows(tot, '全年结余')}
+      ${statRows(tot, '全年结余', '全年共省下')}
     </section>
     <section class="card">
       <div class="chart" style="--b:${(budget / max).toFixed(4)}">
@@ -236,7 +290,7 @@ function yearOverview() {
             aria-label="${i + 1} 月 ${s ? money(s.spent + s.saved) : '无数据'}">
           <i style="height:${s ? ((s.spent + s.saved) / max) * 100 : 0}%"></i><span>${i + 1}</span></button>`).join('')}
       </div>
-      <div class="legend"><span><i class="sw"></i>每月花销+存入</span>${budget > 0 ? `<span><i class="sw dash"></i>每月可花 ${moneyShort(Math.round(budget))}</span>` : ''}</div>
+      <div class="legend"><span><i class="sw"></i>每月花销+存入</span>${budget > 0 ? `<span><i class="sw dash"></i>${variableIncome() ? '月均可花' : '每月可花'} ${moneyShort(Math.round(budget))}</span>` : ''}</div>
       <p class="hint">点柱子看那个月的明细</p>
     </section>
     <h2>全年分类</h2>
@@ -249,17 +303,30 @@ function homeWarning(s) {
   if (s.remaining < 0) return `<div class="warn card">🥺 本月已超支 ${money(-s.remaining)}，剩下 ${s.daysLeft} 天尽量别花啦</div>`;
   if (s.todayLeft < 0) return `<div class="warn card soft">🐕 今天超出额度 ${money(-s.todayLeft)}，后面几天要省一点哦</div>`;
   const cap = s.budget - s.saved;
-  if (s.projected != null && s.projected > cap) {
+  if (!variableIncome() && s.projected != null && s.projected > cap) {
     return `<div class="warn card soft">📈 按现在每天的花法，月底约超支 ${money(s.projected - cap)}</div>`;
   }
   return '';
 }
 
 function goalsView() {
+  const goals = state.goals.filter((g) => !g.archived);
+  const pig = piggyBalance();
   return `
-    <h1>存钱目标 🦴</h1>
-    ${state.goals.map((g) => {
-      const saved = g.deposits.reduce((a, d) => a + d.amount, 0);
+    <h1>存钱 💰</h1>
+    <section class="card piggy">
+      <div class="pig-top">
+        <div class="pig-face" aria-hidden="true">🐷</div>
+        <div><div class="label">小金猪</div><div class="pig-amt num">${money(pig)}</div></div>
+      </div>
+      <div class="actions">
+        <button class="btn" data-piggy="1">存入</button>
+        <button class="btn soft" data-piggy="-1" ${pig > 0 ? '' : 'disabled'}>取出</button>
+      </div>
+    </section>
+    <h2>存钱目标 🦴</h2>
+    ${goals.map((g) => {
+      const saved = goalBalance(g);
       const pct = g.target > 0 ? Math.min(100, (saved / g.target) * 100) : 0;
       return `<section class="card goal">
         <div class="top"><span class="name">${esc(g.name)}</span><span class="pct num">${Math.floor(pct)}%${pct >= 100 ? ' 🎉' : ''}</span></div>
@@ -270,10 +337,11 @@ function goalsView() {
           <button class="btn soft" data-withdraw="${g.id}">取出</button>
           <button class="btn ghost" data-edit-goal="${g.id}">编辑</button>
         </div>
+        ${saved > 0 ? `<button class="btn pig-btn" data-to-piggy="${g.id}">🐷 放进小金猪</button>` : ''}
       </section>`;
     }).join('') || '<div class="card empty">还没有目标，给柴柴定个小目标吧</div>'}
     <button class="btn" data-new-goal>＋ 新目标</button>
-    <p class="hint">存入的钱会从当月「剩余可花」中扣除。</p>`;
+    <p class="hint">从「本月收入」存的钱会从当月可花里扣掉；已有积蓄、小金猪和目标之间挪来挪去的钱，不算进任何一个月。</p>`;
 }
 
 function settingsView() {
@@ -282,11 +350,11 @@ function settingsView() {
   return `
     <h1>设置</h1>
     <div class="list">
-      <button class="set-row" data-set="income"><span>收入</span><span class="chev num">${moneyShort(s.income)} ${FREQ[s.incomeFreq]}</span></button>
+      <button class="set-row" data-set="income"><span>收入</span><span class="chev num">${s.incomeMode === 'weekly' ? '每周不固定' : `${moneyShort(s.income)} ${FREQ[s.incomeFreq]}`}</span></button>
       <button class="set-row" data-set="rent"><span>房租</span><span class="chev num">${moneyShort(s.rent)} ${FREQ[s.rentFreq]}</span></button>
       <button class="set-row" data-set="fixed"><span>其他固定支出</span><span class="chev num">${s.fixed.length} 项 · ${money(otherTotal)}/月</span></button>
     </div>
-    <p class="hint">换算按 1 年 52 周：每周 × 52 ÷ 12 = 每月。固定支出合计 ${money(fixedMonthly())}/月。</p>
+    <p class="hint">换算按 1 年 52 周：每周 × 52 ÷ 12 = 每月。固定支出合计 ${money(fixedMonthly())}/月${s.incomeMode === 'weekly' ? `；收入不固定时，每周一扣一次 ${money(fixedMonthly() * 12 / 52)}` : ''}。</p>
     <h2>备份</h2>
     <button class="btn soft" data-export>导出 JSON 备份</button>
     <button class="btn ghost" data-import>从 JSON 导入</button>
@@ -298,10 +366,12 @@ function settingsView() {
 }
 
 // ---------- 记一笔 ----------
-let amt = '', cat = 'food';
+let amt = '', cat = 'food', kind = 'exp';
 function openAdd() {
   amt = '';
   cat = 'food';
+  kind = 'exp';
+  $('#kindSeg').hidden = !variableIncome();
   $('#addNote').value = '';
   $('#addDate').value = ymd(new Date());
   $('#catGrid').innerHTML = CATS.map((c) => `<button class="cat" data-cat="${c.id}"><span>${c.e}</span>${c.name}</button>`).join('');
@@ -311,17 +381,23 @@ function openAdd() {
   open('#addSheet');
 }
 function updateAdd() {
-  $('#addAmount').textContent = CUR_CFG.sym + (amt || '0');
+  const inc = kind === 'inc';
+  $('#addAmount').textContent = (inc ? '+' : '') + CUR_CFG.sym + (amt || '0');
+  $('#addAmount').classList.toggle('plus', inc);
+  document.querySelectorAll('#kindSeg button').forEach((b) => b.classList.toggle('on', b.dataset.kind === kind));
+  $('#catGrid').hidden = inc;
+  $('#addNote').placeholder = inc ? '备注（可选），如 第 3 周工资' : '备注（可选）';
+  $('.key.ok').textContent = inc ? '记收入' : '完成';
   document.querySelectorAll('.cat').forEach((b) => b.classList.toggle('sel', b.dataset.cat === cat));
   $('.key.ok').disabled = !(parseFloat(amt) > 0);
-  const w = addWarning(parseFloat(amt) || 0);
+  const w = inc ? null : addWarning(parseFloat(amt) || 0);
   const el = $('#addWarn');
   el.hidden = !w;
   if (w) { el.textContent = w.text; el.className = 'add-warn ' + w.level; }
 }
 // 记这笔之前的超支检查：level 'over' = 会让当月超支，'tight' = 超过今天额度
 function addWarning(n) {
-  if (!(n > 0) || !(state.settings.income > 0)) return null;
+  if (!(n > 0) || !hasIncome()) return null;
   const date = $('#addDate').value || ymd(new Date());
   const m = date.slice(0, 7);
   if (m !== thisMonth()) {
@@ -352,11 +428,12 @@ function pressKey(k) {
   }
   updateAdd();
 }
-function commitAdd() {
+async function commitAdd() {
   const n = Math.round(parseFloat(amt) * 100) / 100;
   if (!(n > 0)) return;
+  if (kind === 'inc') return commitIncome(n);
   const w = addWarning(n);
-  if (w && w.level === 'over' && !confirm(`${w.text.replace('⚠️ ', '')}。\n还要记下这笔吗？`)) return;
+  if (w && w.level === 'over' && !(await ask(`${w.text.replace('⚠️ ', '')}。还要记下这笔吗？`, { ok: '还是记下' }))) return;
   state.expenses.push({
     id: uid(), amount: n, cat,
     note: $('#addNote').value.trim(),
@@ -368,6 +445,20 @@ function commitAdd() {
   tab = 'home';
   render();
   toast(w && w.level === 'over' ? `🥺 已记下，本月超支了` : `${catOf(cat).e} 记下 ${money(n)}`);
+}
+
+function commitIncome(n) {
+  state.incomes.push({
+    id: uid(), amount: n,
+    note: $('#addNote').value.trim(),
+    date: $('#addDate').value || ymd(new Date()),
+    t: new Date().toTimeString().slice(0, 8),
+  });
+  save();
+  close('#addSheet');
+  tab = 'home';
+  render();
+  toast(`💰 收入 +${money(n)}`);
 }
 
 // ---------- 通用表单 ----------
@@ -383,8 +474,8 @@ function openForm(title, html, saveFn, afterRender) {
 const moneyInput = (name, val, ph = '0.00') =>
   `<input name="${name}" type="text" inputmode="decimal" placeholder="${ph}" value="${val ? val : ''}">`;
 const num = (v) => Math.max(0, Math.round((parseFloat(String(v).replace(/[^\d.]/g, '')) || 0) * 100) / 100);
-const segHtml = (name, val, keys) =>
-  `<div class="seg" data-seg="${name}">${keys.map((k) => `<button type="button" data-v="${k}" class="${k === val ? 'on' : ''}">${FREQ[k]}</button>`).join('')}</div><input type="hidden" name="${name}" value="${val}">`;
+const segHtml = (name, val, keys, labels = FREQ) =>
+  `<div class="seg" data-seg="${name}">${keys.map((k) => `<button type="button" data-v="${k}" class="${k === val ? 'on' : ''}">${labels[k]}</button>`).join('')}</div><input type="hidden" name="${name}" value="${val}">`;
 const freqSelect = (val) =>
   `<select>${Object.keys(FREQ).map((k) => `<option value="${k}" ${k === val ? 'selected' : ''}>${FREQ[k].replace('每', '/')}</option>`).join('')}</select>`;
 
@@ -402,7 +493,31 @@ function amountFreqForm(title, field, freqField, freqs, label) {
       };
       form.oninput = upd;
       upd();
-      setTimeout(() => form.amt.focus(), 250);
+      setTimeout(() => form.amt?.focus(), 250);
+    });
+}
+
+function incomeForm() {
+  const s = state.settings;
+  openForm('收入', `
+    <label><span>收入方式</span>${segHtml('mode', s.incomeMode, ['fixed', 'weekly'], { fixed: '固定', weekly: '每周不固定' })}</label>
+    <div data-fixed>
+      <label><span>税后收入 (${CUR})</span>${moneyInput('amt', s.income)}</label>
+      <label><span>频率</span>${segHtml('freq', s.incomeFreq, ['week', 'fortnight', 'month'])}</label>
+      <div class="calc num" data-calc></div>
+    </div>
+    <p class="hint" data-weekly>每次发工资时，点 ＋ 切到「收入」记一笔。本月可花 = 本月已到账的收入 − 固定支出 − 已花，不做预估。</p>`,
+    (f) => { s.incomeMode = f.mode.value; s.income = num(f.amt.value); s.incomeFreq = f.freq.value; },
+    (form) => {
+      const upd = () => {
+        const weekly = form.mode.value === 'weekly';
+        form.querySelector('[data-fixed]').hidden = weekly;
+        form.querySelector('[data-weekly]').hidden = !weekly;
+        const v = toMonth(num(form.amt.value), form.freq.value);
+        form.querySelector('[data-calc]').textContent = form.freq.value === 'month' ? '' : `≈ 每月 ${money(v)}`;
+      };
+      form.oninput = upd;
+      upd();
     });
 }
 
@@ -442,28 +557,73 @@ function goalForm(g) {
     },
     (form) => {
       const del = form.querySelector('[data-del-goal]');
-      if (del) del.onclick = () => {
-        if (!confirm(`删除「${g.name}」？`)) return;
-        state.goals = state.goals.filter((x) => x !== g);
-        save(); close('#formSheet'); render();
+      if (del) del.onclick = async () => {
+        const bal = goalBalance(g);
+        if (!(await ask(bal > 0 ? `删除「${g.name}」？里面的 ${money(bal)} 会放进小金猪。` : `删除「${g.name}」？`, { ok: '删除', danger: true }))) return;
+        close('#formSheet');
+        goalToPiggy(g);
       };
-      if (!g) setTimeout(() => form.name.focus(), 250);
+      if (!g) setTimeout(() => form.querySelector('[name=name]')?.focus(), 250);
     });
 }
 
+// 从当月收入存钱前的超支确认
+async function confirmSaveFromMonth(n) {
+  const after = summary().remaining - n;
+  return !(hasIncome() && after < 0) || ask(`存入后本月会超支 ${money(-after)}，还要存吗？`, { ok: '还是存' });
+}
+const today = () => ymd(new Date());
+
 function depositForm(g, sign) {
+  const pig = piggyBalance(), bal = goalBalance(g);
+  const src = sign > 0
+    ? segHtml('src', 'month', ['month', 'piggy'], { month: '本月收入', piggy: `从小金猪（${moneyShort(pig)}）` })
+    : segHtml('src', 'month', ['month', 'piggy'], { month: '拿出来花', piggy: '挪回小金猪' });
   openForm(sign > 0 ? `存入 · ${g.name}` : `取出 · ${g.name}`, `
-    <label><span>金额 (${CUR})</span>${moneyInput('amt', '')}</label>`,
-    (f) => {
-      const n = num(f.amt.value);
+    <label><span>金额 (${CUR})</span>${moneyInput('amt', '')}</label>
+    <label><span>${sign > 0 ? '钱从哪来' : '取出来做什么'}</span>${src}</label>
+    <p class="hint">${sign > 0 ? '「本月收入」会从这个月可花里扣掉；「从小金猪」只是挪一下，不算进这个月。' : `这个目标里有 ${money(bal)}。「拿出来花」会加回这个月可花；「挪回小金猪」只是换个罐子存，这个月可花不变。`}</p>`,
+    async (f) => {
+      const n = num(f.amt.value), fromPig = f.src.value === 'piggy';
       if (!n) { toast('请输入金额'); return false; }
-      const after = summary().remaining - sign * n;
-      if (sign > 0 && state.settings.income > 0 && after < 0 &&
-        !confirm(`存入后本月会超支 ${money(-after)}，还要存吗？`)) return false;
-      g.deposits.push({ date: ymd(new Date()), amount: sign * n });
-      toast(sign > 0 ? `🦴 存入 ${money(n)}` : `取出 ${money(n)}`);
+      if (sign < 0 && n > bal) { toast(`目标里只有 ${money(bal)}`); return false; }
+      if (sign > 0 && fromPig && n > pig) { toast(`小金猪里只有 ${money(pig)}`); return false; }
+      if (sign > 0 && !fromPig && !(await confirmSaveFromMonth(n))) return false;
+      g.deposits.push({ date: today(), amount: sign * n, month: !fromPig });
+      if (fromPig) state.piggy.push({ id: uid(), date: today(), amount: -sign * n, month: false, note: sign > 0 ? `分给 ${g.name}` : `来自 ${g.name}` });
+      toast(sign > 0 ? `🦴 存入 ${money(n)}` : fromPig ? `🐷 挪回小金猪 ${money(n)}` : `取出 ${money(n)}`);
     },
-    (form) => setTimeout(() => form.amt.focus(), 250));
+    (form) => setTimeout(() => form.amt?.focus(), 250));
+}
+
+function piggyForm(sign) {
+  const pig = piggyBalance();
+  openForm(sign > 0 ? '🐷 存进小金猪' : '🐷 从小金猪取出', `
+    <label><span>金额 (${CUR})</span>${moneyInput('amt', '')}</label>
+    ${sign > 0 ? `<label><span>钱从哪来</span>${segHtml('src', state.piggy.length ? 'month' : 'old', ['month', 'old'], { month: '本月收入', old: '已有积蓄' })}</label>
+    <p class="hint">「已有积蓄」是以前就攒下的钱，不算进任何一个月；「本月收入」会从这个月可花里扣掉。</p>`
+    : `<p class="hint">小金猪里有 ${money(pig)}。取出的钱会加回这个月可花里。</p>`}`,
+    async (f) => {
+      const n = num(f.amt.value), old = sign > 0 && f.src.value === 'old';
+      if (!n) { toast('请输入金额'); return false; }
+      if (sign < 0 && n > pig) { toast(`小金猪里只有 ${money(pig)}`); return false; }
+      if (sign > 0 && !old && !(await confirmSaveFromMonth(n))) return false;
+      state.piggy.push({ id: uid(), date: today(), amount: sign * n, month: !old, note: old ? '已有积蓄' : '' });
+      toast(sign > 0 ? `🐷 存进 ${money(n)}` : `🐷 取出 ${money(n)}`);
+    },
+    (form) => setTimeout(() => form.amt?.focus(), 250));
+}
+
+// 目标里的钱整笔倒进小金猪，目标归档（保留存款记录，以前月份的统计不变）
+function goalToPiggy(g) {
+  const bal = goalBalance(g);
+  if (bal > 0) {
+    g.deposits.push({ date: today(), amount: -bal, month: false });
+    state.piggy.push({ id: uid(), date: today(), amount: bal, month: false, note: `来自 ${g.name}` });
+  }
+  g.archived = true;
+  save(); render();
+  toast(bal > 0 ? `🐷 「${g.name}」的 ${money(bal)} 放进小金猪啦` : `已移除「${g.name}」`);
 }
 
 // ---------- 备份 ----------
@@ -485,12 +645,12 @@ async function exportData() {
 }
 function importData(file) {
   const r = new FileReader();
-  r.onload = () => {
+  r.onload = async () => {
     try {
       const d = JSON.parse(r.result);
       if (!d || !d.settings || !Array.isArray(d.expenses)) throw 0;
-      if (!confirm(`导入将覆盖当前数据（${d.expenses.length} 条支出，${(d.goals || []).length} 个目标），继续？`)) return;
-      state = { ...blank(), ...d, settings: { ...blank().settings, ...d.settings }, goals: d.goals || [] };
+      if (!(await ask(`导入将覆盖当前数据（${d.expenses.length} 条支出，${(d.goals || []).length} 个目标），继续？`, { ok: '导入', danger: true }))) return;
+      state = { ...blank(), ...d, settings: { ...blank().settings, ...d.settings }, goals: d.goals || [], incomes: d.incomes || [], piggy: d.piggy || [] };
       save(); render(); toast('✅ 导入成功');
     } catch (e) { toast('文件格式不对'); }
   };
@@ -500,11 +660,27 @@ function importData(file) {
 // ---------- 弹层 ----------
 function open(sel) { $(sel).hidden = false; }
 function close(sel) { $(sel).hidden = true; }
+// 应用内的确认框，代替浏览器自带的确认对话框：有些环境（预览面板、部分 App 内置浏览器）会直接屏蔽它
+function ask(msg, { ok = '确定', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const bg = $('#confirmSheet');
+    $('#confirmMsg').textContent = msg;
+    $('#confirmOk').textContent = ok;
+    $('#confirmOk').className = 'btn' + (danger ? ' danger' : '');
+    // 刚弹出的 0.35 秒内不响应，防止同一次点按（或手快的双击）落在刚出现的按钮上
+    const openedAt = Date.now();
+    const done = (v) => { if (Date.now() - openedAt < 350) return; bg.hidden = true; resolve(v); };
+    $('#confirmOk').onclick = () => done(true);
+    $('#confirmCancel').onclick = () => done(false);
+    bg.onclick = (e) => { if (e.target === bg) done(false); };
+    bg.hidden = false;
+  });
+}
 
 // ---------- 事件 ----------
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const t = e.target.closest('button, .sheet-bg');
-  if (!t) return;
+  if (!t || t.closest('#confirmSheet')) return;
   const d = t.dataset;
 
   if (t.classList.contains('sheet-bg')) { if (e.target === t) t.hidden = true; return; }
@@ -519,9 +695,10 @@ document.addEventListener('click', (e) => {
   if (d.ovMonth) { ovMonth = d.ovMonth; ovMode = 'month'; return render(); }
   if (t.id === 'fab') return openAdd();
   if (d.cat) { cat = d.cat; return updateAdd(); }
+  if (d.kind) { kind = d.kind; return updateAdd(); }
   if (d.k) return pressKey(d.k);
   if (t.id === 'formSave') {
-    if (onFormSave && onFormSave($('#formBody')) === false) return;
+    if (onFormSave && (await onFormSave($('#formBody'))) === false) return;
     save(); close('#formSheet'); return render();
   }
   if (d.v && t.parentElement.dataset.seg) {
@@ -536,8 +713,16 @@ document.addEventListener('click', (e) => {
 
   if (d.delExp) {
     const x = state.expenses.find((x) => x.id === d.delExp);
-    if (x && confirm(`删除这笔 ${money(x.amount)}？`)) {
+    if (x && (await ask(`删除这笔 ${catOf(x.cat).name} ${money(x.amount)}？`, { ok: '删除', danger: true }))) {
       state.expenses = state.expenses.filter((y) => y !== x);
+      save(); render();
+    }
+    return;
+  }
+  if (d.delInc) {
+    const x = state.incomes.find((x) => x.id === d.delInc);
+    if (x && (await ask(`删除这笔收入 ${money(x.amount)}？`, { ok: '删除', danger: true }))) {
+      state.incomes = state.incomes.filter((y) => y !== x);
       save(); render();
     }
     return;
@@ -546,14 +731,21 @@ document.addEventListener('click', (e) => {
   if (d.editGoal) return goalForm(state.goals.find((g) => g.id === d.editGoal));
   if (d.deposit) return depositForm(state.goals.find((g) => g.id === d.deposit), 1);
   if (d.withdraw) return depositForm(state.goals.find((g) => g.id === d.withdraw), -1);
+  if (d.piggy) return piggyForm(+d.piggy);
+  if (d.toPiggy) {
+    const g = state.goals.find((g) => g.id === d.toPiggy);
+    if (g && (await ask(`把「${g.name}」里的 ${money(goalBalance(g))} 放进小金猪？这个目标会被移除。`, { ok: '🐷 放进去' }))) goalToPiggy(g);
+    return;
+  }
 
-  if (d.set === 'income') return amountFreqForm('收入', 'income', 'incomeFreq', ['week', 'fortnight', 'month'], `税后收入 (${CUR})`);
+  if (d.set === 'income') return incomeForm();
   if (d.set === 'rent') return amountFreqForm('房租', 'rent', 'rentFreq', ['week', 'fortnight', 'month'], `房租 (${CUR})`);
   if (d.set === 'fixed') return fixedForm();
   if ('export' in d) return exportData();
   if ('import' in d) return $('#importFile').click();
   if ('reset' in d) {
-    if (confirm('确定清空所有数据？建议先导出备份。') && confirm('真的要清空吗？无法恢复。')) {
+    if (await ask('确定清空所有数据？建议先导出备份。', { ok: '清空', danger: true }) &&
+      await ask('真的要清空吗？无法恢复。', { ok: '确定清空', danger: true })) {
       state = blank(); save(); render(); toast('已清空');
     }
   }
@@ -565,7 +757,7 @@ $('#addDate').addEventListener('change', updateAdd);
 $('#formBody').addEventListener('submit', (e) => { e.preventDefault(); $('#formSave').click(); });
 
 // 回到前台时刷新（跨天、跨月）
-document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#addSheet').hidden && $('#formSheet').hidden) render(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#addSheet').hidden && $('#formSheet').hidden && $('#confirmSheet').hidden) render(); });
 
 render();
 
@@ -574,6 +766,6 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   // 新版本接管后自动刷新一次（首次安装不刷新；正在记账或填表时不打断）
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (hadController && $('#addSheet').hidden && $('#formSheet').hidden) location.reload();
+    if (hadController && $('#addSheet').hidden && $('#formSheet').hidden && $('#confirmSheet').hidden) location.reload();
   });
 }

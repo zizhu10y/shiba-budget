@@ -74,7 +74,7 @@ h2 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 24px 4px 8p
 .goal .pct { color: var(--brand); font-weight: 700; }
 .goal .sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
 .goal .bar { height: 12px; }
-.goal .actions { display: flex; gap: 8px; margin-top: 14px; }
+.goal .actions, .piggy .actions { display: flex; gap: 8px; margin-top: 14px; }
 
 .btn { display: block; width: 100%; min-height: 54px; border-radius: 14px; font-size: 17px; font-weight: 600; background: var(--brand); color: #fff; }
 .btn.soft { background: var(--brand-soft); color: var(--brand); }
@@ -197,3 +197,39 @@ body { background-image: var(--pattern); background-size: 200px 200px; }
 .card, .list { background: color-mix(in srgb, var(--card) 86%, transparent); }
 .warn.card { background: var(--danger-soft); }
 .warn.card.soft { background: var(--brand-soft); }
+
+/* 收入 */
+.plus { color: var(--brand) !important; }
+.kind-seg { margin: 4px 0 0; }
+.kind-seg[hidden], .cats[hidden], [data-fixed][hidden], [data-weekly][hidden] { display: none; }
+
+/* 小金猪 */
+.piggy { background: linear-gradient(135deg, #ffe08a, #ffc857) !important; color: #4a3208; }
+.piggy .label, .piggy .sub { color: #7a5a1c; }
+.pig-top { display: flex; align-items: center; gap: 14px; }
+.pig-face { font-size: 44px; width: 68px; height: 68px; display: grid; place-items: center; background: rgba(255,255,255,.55); border-radius: 50%; flex: none; }
+.pig-amt { font-size: 34px; font-weight: 700; letter-spacing: -.5px; }
+.piggy .sub { margin-top: 10px; font-size: 14px; }
+.piggy .btn { background: #4a3208; color: #ffe08a; }
+.piggy .btn.soft { background: rgba(255,255,255,.6); color: #4a3208; }
+.btn:disabled { opacity: .4; }
+.pig-btn { margin-top: 8px !important; min-height: 46px; font-size: 15px; background: #ffe7a3; color: #6b4a0c; }
+@media (prefers-color-scheme: dark) {
+  .piggy { background: linear-gradient(135deg, #5a4413, #3f2f0c) !important; color: #ffe08a; }
+  .piggy .label, .piggy .sub { color: #e8c97a; }
+  .piggy .btn { background: #ffc857; color: #2a1806; }
+  .piggy .btn.soft { background: rgba(255,255,255,.12); color: #ffe08a; }
+  .pig-btn { background: #4a3a14; color: #ffe08a; }
+}
+/* 共省下 */
+.kept { margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: #fff1c2; }
+.kept > div { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; }
+.kept b { font-size: 20px; color: var(--brand); }
+.kept small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.kept.neg-bg { background: var(--danger-soft); }
+.kept.neg-bg b { color: var(--danger); }
+@media (prefers-color-scheme: dark) { .kept { background: #3a2d12; } }
+
+/* 确认框：盖在其他弹层之上 */
+.confirm-bg { z-index: 40; }
+.confirm p { font-size: 17px; line-height: 1.5; text-align: center; margin: 12px 8px 18px; font-weight: 500; -webkit-user-select: text; user-select: text; }

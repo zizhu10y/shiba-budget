@@ -22,7 +22,7 @@
   <button data-tab="home" class="active"><span class="ico">🐕</span>首页</button>
   <button data-tab="overview"><span class="ico">📊</span>总览</button>
   <button data-tab="goals"><span class="ico">🦴</span>目标</button>
-  <button data-tab="settings"><span class="ico">⚙</span>设置</button>
+  <button data-tab="settings"><span class="ico">⚙️</span>设置</button>
 </nav>
 <button id="fab" aria-label="记一笔">＋</button>
 
@@ -33,6 +33,10 @@
       <button class="link" data-close>取消</button>
       <strong>记一笔</strong>
       <input type="date" id="addDate" class="date-input">
+    </div>
+    <div class="seg kind-seg" id="kindSeg" hidden>
+      <button data-kind="exp" class="on">支出</button>
+      <button data-kind="inc">收入</button>
     </div>
     <div class="amount-display" id="addAmount">$0</div>
     <div class="add-warn" id="addWarn" hidden></div>
@@ -51,6 +55,15 @@
       <button class="link strong" id="formSave">保存</button>
     </div>
     <form id="formBody" class="form"></form>
+  </div>
+</div>
+
+<!-- 确认框 -->
+<div class="sheet-bg confirm-bg" id="confirmSheet" hidden>
+  <div class="sheet confirm">
+    <p id="confirmMsg"></p>
+    <button class="btn" id="confirmOk">确定</button>
+    <button class="btn ghost" id="confirmCancel">取消</button>
   </div>
 </div>
 
