@@ -571,4 +571,9 @@ render();
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register(window.SW_PATH || 'sw.js').catch(() => {});
+  // 新版本接管后自动刷新一次（首次安装不刷新；正在记账或填表时不打断）
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && $('#addSheet').hidden && $('#formSheet').hidden) location.reload();
+  });
 }
