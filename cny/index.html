@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>柴柴账本</title>
+<meta name="theme-color" content="#fff5d1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="柴柴账本">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
+<link rel="icon" href="../icons/icon-192.png">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main id="view"></main>
+
+<nav class="tabbar">
+  <button data-tab="home" class="active"><span class="ico">🐕</span>首页</button>
+  <button data-tab="overview"><span class="ico">📊</span>总览</button>
+  <button data-tab="goals"><span class="ico">🦴</span>目标</button>
+  <button data-tab="settings"><span class="ico">⚙</span>设置</button>
+</nav>
+<button id="fab" aria-label="记一笔">＋</button>
+
+<!-- 记一笔 -->
+<div class="sheet-bg" id="addSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <button class="link" data-close>取消</button>
+      <strong>记一笔</strong>
+      <input type="date" id="addDate" class="date-input">
+    </div>
+    <div class="amount-display" id="addAmount">¥0</div>
+    <div class="add-warn" id="addWarn" hidden></div>
+    <input id="addNote" class="note" placeholder="备注（可选）" maxlength="40">
+    <div class="cats" id="catGrid"></div>
+    <div class="keypad" id="keypad"></div>
+  </div>
+</div>
+
+<!-- 通用输入弹窗 -->
+<div class="sheet-bg" id="formSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <button class="link" data-close>取消</button>
+      <strong id="formTitle"></strong>
+      <button class="link strong" id="formSave">保存</button>
+    </div>
+    <form id="formBody" class="form"></form>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+<script>window.CURRENCY = 'CNY'; window.SW_PATH = '../sw.js';</script>
+<script src="../app.js"></script>
+</body>
+</html>

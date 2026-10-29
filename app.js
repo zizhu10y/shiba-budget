@@ -1,7 +1,11 @@
 'use strict';
 
 // ---------- 数据 ----------
-const KEY = 'shiba-budget-v1';
+// 货币由页面设置（人民币版在 cny/index.html 里设 window.CURRENCY = 'CNY'），默认澳元
+const CUR = window.CURRENCY === 'CNY' ? 'CNY' : 'AUD';
+const CUR_CFG = { AUD: { locale: 'en-AU', sym: '$', rentFreq: 'week' }, CNY: { locale: 'zh-CN', sym: '¥', rentFreq: 'month' } }[CUR];
+// 两个版本在同一个域名下，存储键要分开；澳元版沿用原来的键，已有数据不受影响
+const KEY = CUR === 'AUD' ? 'shiba-budget-v1' : 'shiba-budget-cny-v1';
 const FREQ = { week: '每周', fortnight: '每两周', month: '每月', year: '每年' };
 const TO_MONTH = { week: 52 / 12, fortnight: 26 / 12, month: 1, year: 1 / 12 };
 const CATS = [
@@ -17,7 +21,7 @@ const CATS = [
 
 const blank = () => ({
   v: 1,
-  settings: { income: 0, incomeFreq: 'month', rent: 0, rentFreq: 'week', fixed: [] },
+  settings: { income: 0, incomeFreq: 'month', rent: 0, rentFreq: CUR_CFG.rentFreq, fixed: [] },
   expenses: [],
   goals: [],
 });
@@ -38,8 +42,8 @@ function save() {
 
 // ---------- 工具 ----------
 const $ = (s) => document.querySelector(s);
-const aud = new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' });
-const money = (n) => aud.format(Math.round(n * 100) / 100);
+const fmt = new Intl.NumberFormat(CUR_CFG.locale, { style: 'currency', currency: CUR });
+const money = (n) => fmt.format(Math.round(n * 100) / 100);
 const moneyShort = (n) => money(n).replace(/\.00$/, '');
 const toMonth = (amt, freq) => (Number(amt) || 0) * (TO_MONTH[freq] || 1);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -290,7 +294,7 @@ function settingsView() {
     <p class="hint">数据只保存在本机浏览器里，换手机或清除 Safari 数据前记得先导出。</p>
     <h2>危险操作</h2>
     <button class="btn danger" data-reset>清空所有数据</button>
-    <p class="hint" style="text-align:center;margin-top:24px">🐕 柴柴账本 · 金额单位 AUD</p>`;
+    <p class="hint" style="text-align:center;margin-top:24px">🐕 柴柴账本 · 金额单位 ${CUR}</p>`;
 }
 
 // ---------- 记一笔 ----------
@@ -307,7 +311,7 @@ function openAdd() {
   open('#addSheet');
 }
 function updateAdd() {
-  $('#addAmount').textContent = '$' + (amt || '0');
+  $('#addAmount').textContent = CUR_CFG.sym + (amt || '0');
   document.querySelectorAll('.cat').forEach((b) => b.classList.toggle('sel', b.dataset.cat === cat));
   $('.key.ok').disabled = !(parseFloat(amt) > 0);
   const w = addWarning(parseFloat(amt) || 0);
@@ -428,7 +432,7 @@ function fixedForm() {
 function goalForm(g) {
   openForm(g ? '编辑目标' : '新目标', `
     <label><span>目标名称</span><input name="name" placeholder="如 日本旅行" value="${esc(g?.name)}" maxlength="20"></label>
-    <label><span>目标金额 (AUD)</span>${moneyInput('target', g?.target)}</label>
+    <label><span>目标金额 (${CUR})</span>${moneyInput('target', g?.target)}</label>
     ${g ? '<button type="button" class="btn danger" data-del-goal style="margin-top:20px">删除这个目标</button>' : ''}`,
     (f) => {
       const name = f.name.value.trim(), target = num(f.target.value);
@@ -449,7 +453,7 @@ function goalForm(g) {
 
 function depositForm(g, sign) {
   openForm(sign > 0 ? `存入 · ${g.name}` : `取出 · ${g.name}`, `
-    <label><span>金额 (AUD)</span>${moneyInput('amt', '')}</label>`,
+    <label><span>金额 (${CUR})</span>${moneyInput('amt', '')}</label>`,
     (f) => {
       const n = num(f.amt.value);
       if (!n) { toast('请输入金额'); return false; }
@@ -464,7 +468,7 @@ function depositForm(g, sign) {
 
 // ---------- 备份 ----------
 async function exportData() {
-  const name = `shiba-budget-${ymd(new Date())}.json`;
+  const name = `shiba-budget-${CUR.toLowerCase()}-${ymd(new Date())}.json`;
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const file = new File([blob], name, { type: 'application/json' });
   // iPhone 主屏幕模式下用系统分享面板最稳（可存到「文件」或发给自己）
@@ -543,8 +547,8 @@ document.addEventListener('click', (e) => {
   if (d.deposit) return depositForm(state.goals.find((g) => g.id === d.deposit), 1);
   if (d.withdraw) return depositForm(state.goals.find((g) => g.id === d.withdraw), -1);
 
-  if (d.set === 'income') return amountFreqForm('收入', 'income', 'incomeFreq', ['week', 'fortnight', 'month'], '税后收入 (AUD)');
-  if (d.set === 'rent') return amountFreqForm('房租', 'rent', 'rentFreq', ['week', 'fortnight', 'month'], '房租 (AUD)');
+  if (d.set === 'income') return amountFreqForm('收入', 'income', 'incomeFreq', ['week', 'fortnight', 'month'], `税后收入 (${CUR})`);
+  if (d.set === 'rent') return amountFreqForm('房租', 'rent', 'rentFreq', ['week', 'fortnight', 'month'], `房租 (${CUR})`);
   if (d.set === 'fixed') return fixedForm();
   if ('export' in d) return exportData();
   if ('import' in d) return $('#importFile').click();
@@ -566,5 +570,5 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && $(
 render();
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register(window.SW_PATH || 'sw.js').catch(() => {});
 }
