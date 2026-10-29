@@ -129,8 +129,8 @@ h2 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 24px 4px 8p
 .date-input { border: 0; background: var(--key); border-radius: 10px; padding: 6px 8px; font-size: 14px; max-width: 140px; }
 
 .amount-display { font-size: 48px; font-weight: 700; text-align: center; padding: 10px 0 6px; letter-spacing: -1px; }
-.note { width: 100%; border: 0; background: var(--card); border-radius: 12px; padding: 12px 14px; font-size: 16px; -webkit-user-select: text; user-select: text; }
-.cats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+.note { display: block; width: 100%; margin-bottom: 12px; border: 0; background: var(--card); border-radius: 12px; padding: 12px 14px; font-size: 16px; -webkit-user-select: text; user-select: text; }
+.cats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 12px; }
 .cat { background: var(--card); border-radius: 14px; min-height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 13px; gap: 2px; border: 2px solid transparent; }
 .cat span { font-size: 22px; }
 .cat.sel { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); font-weight: 600; }
