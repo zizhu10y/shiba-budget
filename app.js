@@ -160,6 +160,7 @@ function homeView() {
       </div>
     </section>
     ${hasSetup ? homeWarning(s) : ''}
+    ${rentReminder()}
     ${deadlineWarning()}
     <section class="card rows">
       <div class="row"><span>${vi ? `本月已到账收入${s.monthInc.length ? `（${s.monthInc.length} 笔）` : ''}` : '月收入'}</span><span class="num">${money(s.income)}</span></div>
@@ -338,6 +339,31 @@ function deadlineWarning() {
   return `<div class="warn card soft">🐾「${esc(g.name)}」${msg}</div>`;
 }
 
+// 下次交房租：从设置里记的某一次交租日期，按频率往后推到今天或之后
+function nextRent() {
+  const s = state.settings;
+  if (!s.rentDate || !s.rent) return null;
+  const [y, m, d] = s.rentDate.split("-").map(Number);
+  const now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let next = new Date(y, m - 1, d);
+  if (s.rentFreq === "month") {
+    let i = 0;
+    while (next < today) next = new Date(y, m - 1 + ++i, Math.min(d, new Date(y, m + i, 0).getDate()));
+  } else {
+    const step = s.rentFreq === "week" ? 7 : 14;
+    const behind = Math.round((today - next) / 864e5);
+    if (behind > 0) next = new Date(y, m - 1, d + Math.ceil(behind / step) * step);
+  }
+  return { date: next, days: Math.round((next - today) / 864e5) };
+}
+// 首页交租提醒：到期前 2 天开始显示
+function rentReminder() {
+  const r = nextRent();
+  if (!r || r.days > 2) return "";
+  const when = ["今天", "明天", "后天"][r.days];
+  return `<div class="warn card soft">🏠 ${when}交房租 ${money(state.settings.rent)}</div>`;
+}
+
 // 首页预警：已超支 > 今天超额 > 按速度月底会超支
 function homeWarning(s) {
   if (s.remaining < 0) return `<div class="warn card">🥺 本月已超支 ${money(-s.remaining)}，剩下 ${s.daysLeft} 天尽量别花啦</div>`;
@@ -392,10 +418,11 @@ function settingsView() {
     <h1>设置</h1>
     <div class="list">
       <button class="set-row" data-set="income"><span>收入</span><span class="chev num">${s.incomeMode === 'weekly' ? '每周不固定' : `${moneyShort(s.income)} ${FREQ[s.incomeFreq]}`}</span></button>
-      <button class="set-row" data-set="rent"><span>房租</span><span class="chev num">${moneyShort(s.rent)} ${FREQ[s.rentFreq]}</span></button>
+      <button class="set-row" data-set="rent"><span>房租</span><span class="chev num">${moneyShort(s.rent)} ${FREQ[s.rentFreq]}${nextRent() ? ` · 下次 ${nextRent().date.getMonth() + 1}/${nextRent().date.getDate()}` : ""}</span></button>
       <button class="set-row" data-set="fixed"><span>其他固定支出</span><span class="chev num">${s.fixed.length} 项 · ${money(otherTotal)}/月</span></button>
     </div>
     <p class="hint">换算按 1 年 52 周：每周 × 52 ÷ 12 = 每月。固定支出合计 ${money(fixedMonthly())}/月${s.incomeMode === 'weekly' ? `；收入不固定时，每周一扣一次 ${money(fixedMonthly() * 12 / 52)}` : ''}。</p>
+    ${nextRent() ? '<button class="btn soft" data-rent-cal style="margin-top:12px">📅 把交房租提醒加到手机日历</button>' : ""}
     <h2>备份</h2>
     <button class="btn soft" data-export>导出 JSON 备份</button>
     <button class="btn ghost" data-import>从 JSON 导入</button>
@@ -520,13 +547,14 @@ const segHtml = (name, val, keys, labels = FREQ) =>
 const freqSelect = (val) =>
   `<select>${Object.keys(FREQ).map((k) => `<option value="${k}" ${k === val ? 'selected' : ''}>${FREQ[k].replace('每', '/')}</option>`).join('')}</select>`;
 
-function amountFreqForm(title, field, freqField, freqs, label) {
+function amountFreqForm(title, field, freqField, freqs, label, withDate) {
   const s = state.settings;
   openForm(title, `
     <label><span>${label}</span>${moneyInput('amt', s[field])}</label>
     <label><span>频率</span>${segHtml('freq', s[freqField], freqs)}</label>
-    <div class="calc num" data-calc></div>`,
-    (f) => { s[field] = num(f.amt.value); s[freqField] = f.freq.value; },
+    <div class="calc num" data-calc></div>
+    ${withDate ? `<label><span>最近一次交房租的日期（用来提醒你，可选）</span><input name="rentDate" type="date" value="${s.rentDate || ''}"></label>` : ''}`,
+    (f) => { s[field] = num(f.amt.value); s[freqField] = f.freq.value; if (withDate) s.rentDate = f.rentDate.value || ''; },
     (form) => {
       const upd = () => {
         const v = toMonth(num(form.amt.value), form.freq.value);
@@ -676,6 +704,28 @@ function goalToPiggy(g) {
   toast(bal > 0 ? `🐷 「${g.name}」的 ${money(bal)} 放进小金猪啦` : `已移除「${g.name}」`);
 }
 
+// ---------- 交房租日历 ----------
+// 生成一个按房租频率重复的全天事件，前一天早上 9 点提醒，交给系统日历去响
+function rentCalendar() {
+  const r = nextRent();
+  if (!r) return;
+  const s = state.settings, d = ymd(r.date).replace(/-/g, "");
+  const end = new Date(r.date); end.setDate(end.getDate() + 1);
+  const rule = { week: "FREQ=WEEKLY", fortnight: "FREQ=WEEKLY;INTERVAL=2", month: "FREQ=MONTHLY" }[s.rentFreq];
+  const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//shiba-budget//CN", "BEGIN:VEVENT",
+    `UID:rent-${uid()}@shiba-budget`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
+    `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${ymd(end).replace(/-/g, "")}`, `RRULE:${rule}`,
+    `SUMMARY:🏠 交房租 ${moneyShort(s.rent)}`,
+    "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15H", `DESCRIPTION:明天交房租 ${moneyShort(s.rent)}`, "END:VALARM",
+    "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+  const a = document.createElement("a");
+  a.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
+  a.download = "rent.ics";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => a.remove(), 1000);
+}
+
 // ---------- 备份 ----------
 async function exportData() {
   const name = `shiba-budget-${CUR.toLowerCase()}-${ymd(new Date())}.json`;
@@ -789,7 +839,8 @@ document.addEventListener('click', async (e) => {
   }
 
   if (d.set === 'income') return incomeForm();
-  if (d.set === 'rent') return amountFreqForm('房租', 'rent', 'rentFreq', ['week', 'fortnight', 'month'], `房租 (${CUR})`);
+  if (d.set === 'rent') return amountFreqForm('房租', 'rent', 'rentFreq', ['week', 'fortnight', 'month'], `房租 (${CUR})`, true);
+  if ('rentCal' in d) return rentCalendar();
   if (d.set === 'fixed') return fixedForm();
   if ('export' in d) return exportData();
   if ('import' in d) return $('#importFile').click();
