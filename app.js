@@ -422,7 +422,7 @@ function settingsView() {
       <button class="set-row" data-set="fixed"><span>其他固定支出</span><span class="chev num">${s.fixed.length} 项 · ${money(otherTotal)}/月</span></button>
     </div>
     <p class="hint">换算按 1 年 52 周：每周 × 52 ÷ 12 = 每月。固定支出合计 ${money(fixedMonthly())}/月${s.incomeMode === 'weekly' ? `；收入不固定时，每周一扣一次 ${money(fixedMonthly() * 12 / 52)}` : ''}。</p>
-    ${nextRent() ? '<button class="btn soft" data-rent-cal style="margin-top:12px">📅 把交房租提醒加到手机日历</button>' : ""}
+    ${nextRent() ? '<button class="btn soft" data-rent-cal style="margin-top:12px">📅 加到手机日历，交房租前一天提醒</button>' : ""}
     <h2>备份</h2>
     <button class="btn soft" data-export>导出 JSON 备份</button>
     <button class="btn ghost" data-import>从 JSON 导入</button>
@@ -533,6 +533,7 @@ function commitIncome(n) {
 let onFormSave = null;
 function openForm(title, html, saveFn, afterRender) {
   $('#formTitle').textContent = title;
+  $('#formSave').textContent = '保存';
   $('#formBody').innerHTML = html;
   onFormSave = saveFn;
   $('#formBody').oninput = null;
@@ -705,10 +706,34 @@ function goalToPiggy(g) {
 }
 
 // ---------- 交房租日历 ----------
-// 生成一个按房租频率重复的全天事件，前一天早上 9 点提醒，交给系统日历去响
+// iPhone 主屏幕 App 里没法直接导入日历文件，改成一步步教你在「日历」里建一个重复事件
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function rentCalendarGuide(r) {
+  const s = state.settings, title = `🏠 交房租 ${moneyShort(s.rent)}`;
+  const repeat = { week: "每周", fortnight: "每两周", month: "每月" }[s.rentFreq];
+  openForm("加到 iPhone 日历", `
+    <ol class="steps">
+      <li>打开 iPhone 自带的「<b>日历</b>」，点右上角 <b>＋</b></li>
+      <li>标题填 <b>${esc(title)}</b> <button type="button" class="link" data-copy-title>复制</button></li>
+      <li>打开「<b>全天</b>」，日期选 <b>${r.date.getMonth() + 1} 月 ${r.date.getDate()} 日</b></li>
+      <li>「重复」选 <b>${repeat}</b></li>
+      <li>「提醒」选 <b>提前 1 天（上午 9:00）</b></li>
+      <li>点右上角「<b>添加</b>」</li>
+    </ol>
+    <p class="hint">只要设一次，以后每次交房租前一天日历都会提醒你。房租改了的话，记得也改一下日历里的这个事件。</p>`,
+    () => {},
+    (form) => {
+      $("#formSave").textContent = "好的";
+      form.querySelector("[data-copy-title]").onclick = async () => {
+        try { await navigator.clipboard.writeText(title); toast("已复制"); } catch (e) { toast("复制失败，手动输入一下吧"); }
+      };
+    });
+}
+// 其他手机：生成一个按房租频率重复的全天事件，前一天早上 9 点提醒，交给系统日历去响
 function rentCalendar() {
   const r = nextRent();
   if (!r) return;
+  if (isIOS) return rentCalendarGuide(r);
   const s = state.settings, d = ymd(r.date).replace(/-/g, "");
   const end = new Date(r.date); end.setDate(end.getDate() + 1);
   const rule = { week: "FREQ=WEEKLY", fortnight: "FREQ=WEEKLY;INTERVAL=2", month: "FREQ=MONTHLY" }[s.rentFreq];
@@ -719,11 +744,11 @@ function rentCalendar() {
     "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15H", `DESCRIPTION:明天交房租 ${moneyShort(s.rent)}`, "END:VALARM",
     "END:VEVENT", "END:VCALENDAR"].join("\r\n");
   const a = document.createElement("a");
-  a.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
+  a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
   a.download = "rent.ics";
   document.body.appendChild(a);
   a.click();
-  setTimeout(() => a.remove(), 1000);
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
 // ---------- 备份 ----------

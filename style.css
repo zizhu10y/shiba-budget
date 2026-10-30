@@ -239,3 +239,8 @@ body { background-image: var(--pattern); background-size: 200px 200px; }
 .goal .due.soon { color: var(--brand); font-weight: 600; }
 .goal .due.ok { color: var(--brand); }
 .form input[type=date] { font-size: 17px; }
+
+/* 日历设置步骤 */
+.steps { margin: 8px 0 0; padding: 0 0 0 22px; font-size: 16px; line-height: 1.6; }
+.steps li { margin: 10px 0; }
+.steps .link { font-size: 14px; margin-left: 6px; }
