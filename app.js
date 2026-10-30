@@ -133,6 +133,7 @@ function firstMonth() {
 let tab = 'home';
 function render() {
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('fab').hidden = tab !== 'home'; // 记一笔只在首页
   $('#view').innerHTML = { home: homeView, overview: overviewView, goals: goalsView, settings: settingsView }[tab]();
   window.scrollTo(0, 0);
 }
@@ -159,6 +160,7 @@ function homeView() {
       </div>
     </section>
     ${hasSetup ? homeWarning(s) : ''}
+    ${deadlineWarning()}
     <section class="card rows">
       <div class="row"><span>${vi ? `本月已到账收入${s.monthInc.length ? `（${s.monthInc.length} 笔）` : ''}` : '月收入'}</span><span class="num">${money(s.income)}</span></div>
       <div class="row"><span>固定支出${s.weeks != null ? `（已扣 ${s.weeks} 周）` : ''}</span><span class="num">−${money(s.fixed)}</span></div>
@@ -298,6 +300,44 @@ function yearOverview() {
     : '<div class="card empty">🐾 这一年还没有记录</div>'}`;
 }
 
+// 目标截止日期：距今天数（负数 = 已过期）、还差多少、每周/每月需要存多少
+function goalDeadline(g) {
+  if (!g.due) return null;
+  const left = Math.max(0, g.target - goalBalance(g));
+  const [y, m, d] = g.due.split('-').map(Number);
+  const now = new Date();
+  const days = Math.round((new Date(y, m - 1, d) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 864e5);
+  const weeks = Math.max(1, days / 7);
+  return { left, days, perWeek: left / weeks, perMonth: left / Math.max(1, days / (365 / 12)),
+    label: (y === now.getFullYear() ? '' : `${y}/`) + `${m}/${d}` };
+}
+function deadlineLine(g) {
+  const dl = goalDeadline(g);
+  if (!dl) return "";
+  // 必须完成的目标：7 天内（含已过）颜色稍微醒目一点；不着急的目标一直保持低调
+  const cls = !g.relaxed && dl.days <= 7 ? "due soon" : "due";
+  if (dl.left === 0) return `<div class="due ok">🎉 ${dl.label} 前已经存够啦</div>`;
+  if (dl.days < 0) return `<div class="${cls}">🐾 目标日 ${dl.label} 已过，还差 ${money(dl.left)}，慢慢来</div>`;
+  if (dl.days === 0) return `<div class="${cls}">🐾 今天是目标日，还差 ${money(dl.left)}</div>`;
+  return `<div class="${cls}">🐾 目标日 ${dl.label} · 还有 ${dl.days} 天${dl.days >= 7
+    ? ` · 每周存 ${money(dl.perWeek)} 就够${dl.days >= 28 ? `（每月约 ${money(dl.perMonth)}）` : ""}`
+    : ` · 还差 ${money(dl.left)}`}</div>`;
+}
+// 首页温和提醒：没存够、已过目标日或 14 天内到期的目标里，最近的一个
+function deadlineWarning() {
+  const urgent = state.goals.filter((g) => !g.archived)
+    .map((g) => ({ g, dl: goalDeadline(g) }))
+    .filter(({ g, dl }) => dl && !g.relaxed && dl.left > 0 && dl.days <= 14)
+    .sort((a, b) => a.dl.days - b.dl.days)[0];
+  if (!urgent) return "";
+  const { g, dl } = urgent;
+  const msg = dl.days < 0 ? `目标日 ${dl.label} 已过，还差 ${money(dl.left)}，要不要把日期往后挪挪？`
+    : dl.days === 0 ? `今天是目标日，还差 ${money(dl.left)}`
+    : dl.days >= 7 ? `还有 ${dl.days} 天，每周存 ${money(dl.perWeek)} 就够啦`
+    : `还有 ${dl.days} 天，还差 ${money(dl.left)}，加油～`;
+  return `<div class="warn card soft">🐾「${esc(g.name)}」${msg}</div>`;
+}
+
 // 首页预警：已超支 > 今天超额 > 按速度月底会超支
 function homeWarning(s) {
   if (s.remaining < 0) return `<div class="warn card">🥺 本月已超支 ${money(-s.remaining)}，剩下 ${s.daysLeft} 天尽量别花啦</div>`;
@@ -332,6 +372,7 @@ function goalsView() {
         <div class="top"><span class="name">${esc(g.name)}</span><span class="pct num">${Math.floor(pct)}%${pct >= 100 ? ' 🎉' : ''}</span></div>
         <div class="bar"><i style="width:${pct}%"></i></div>
         <div class="sub num">已存 ${money(saved)} / ${moneyShort(g.target)}${pct < 100 ? ` · 还差 ${money(g.target - saved)}` : ''}</div>
+        ${deadlineLine(g)}
         <div class="actions">
           <button class="btn" data-deposit="${g.id}">存入</button>
           <button class="btn soft" data-withdraw="${g.id}">取出</button>
@@ -548,14 +589,23 @@ function goalForm(g) {
   openForm(g ? '编辑目标' : '新目标', `
     <label><span>目标名称</span><input name="name" placeholder="如 日本旅行" value="${esc(g?.name)}" maxlength="20"></label>
     <label><span>目标金额 (${CUR})</span>${moneyInput('target', g?.target)}</label>
+    <label><span>截止日期（可选）：这天之前要存够</span><input name="due" type="date" value="${g?.due || ''}"></label>
+    <button type="button" class="link" data-clear-due style="margin-top:6px${g?.due ? '' : ';display:none'}">不设截止日期</button>
+    <label><span>这个目标</span>${segHtml('level', g?.relaxed ? 'relaxed' : 'must', ['must', 'relaxed'], { must: '必须完成', relaxed: '不着急' })}</label>
     ${g ? '<button type="button" class="btn danger" data-del-goal style="margin-top:20px">删除这个目标</button>' : ''}`,
     (f) => {
-      const name = f.name.value.trim(), target = num(f.target.value);
+      const name = f.name.value.trim(), target = num(f.target.value), due = f.due.value || '', relaxed = f.level.value === 'relaxed';
       if (!name || !target) { toast('请填写名称和金额'); return false; }
-      if (g) Object.assign(g, { name, target });
-      else state.goals.push({ id: uid(), name, target, deposits: [] });
+      if (g) Object.assign(g, { name, target, due, relaxed });
+      else state.goals.push({ id: uid(), name, target, due, relaxed, deposits: [] });
     },
     (form) => {
+      const clr = form.querySelector('[data-clear-due]');
+      // 有日期才显示「不设截止日期」；清掉后选了新日期，按钮会再出现
+      const syncClr = () => { clr.style.display = form.due.value ? '' : 'none'; };
+      form.due.addEventListener('input', syncClr);
+      form.due.addEventListener('change', syncClr);
+      clr.onclick = () => { form.due.value = ''; syncClr(); toast('已取消截止日期，保存后生效'); };
       const del = form.querySelector('[data-del-goal]');
       if (del) del.onclick = async () => {
         const bal = goalBalance(g);

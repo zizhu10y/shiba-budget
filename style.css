@@ -233,3 +233,9 @@ body { background-image: var(--pattern); background-size: 200px 200px; }
 /* 确认框：盖在其他弹层之上 */
 .confirm-bg { z-index: 40; }
 .confirm p { font-size: 17px; line-height: 1.5; text-align: center; margin: 12px 8px 18px; font-weight: 500; -webkit-user-select: text; user-select: text; }
+
+/* 目标截止日期 */
+.goal .due { margin-top: 8px; font-size: 14px; color: var(--muted); }
+.goal .due.soon { color: var(--brand); font-weight: 600; }
+.goal .due.ok { color: var(--brand); }
+.form input[type=date] { font-size: 17px; }
