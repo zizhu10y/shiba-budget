@@ -146,7 +146,7 @@ function homeView() {
   const vi = variableIncome();
   const used = s.budget > 0 ? Math.min(100, ((s.spent + s.saved) / s.budget) * 100) : 0;
   const neg = s.remaining < 0;
-  const mood = !hasSetup ? (vi ? '🐕 发工资了就点 ＋ 记一笔收入' : '🐕 先去「设置」填收入吧') : neg ? '🥺 呜…这个月超支了' : used > 80 ? '🐕 省着点花哦' : '🐕 汪！这个月还能花';
+  const mood = !hasSetup ? (vi ? '🐕 发工资了就点 ＋ 记一笔收入' : '🐕 先去「设置」填收入吧') : neg ? '🥺 呜…这个月超支了' : s.remaining === 0 && s.budget > 0 ? '🐕 这个月刚好花完啦' : used > 80 ? '🐕 省着点花哦' : '🐕 汪！这个月还能花';
   const list = [...s.monthExp, ...(vi ? s.monthInc.map((i) => ({ ...i, inc: true })) : [])]
     .sort((a, b) => (b.date + b.t).localeCompare(a.date + a.t));
   return `
