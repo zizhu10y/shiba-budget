@@ -50,6 +50,8 @@ const $ = (s) => document.querySelector(s);
 const fmt = new Intl.NumberFormat(CUR_CFG.locale, { style: 'currency', currency: CUR });
 const money = (n) => fmt.format(Math.round(n * 100) / 100);
 const moneyShort = (n) => money(n).replace(/\.00$/, '');
+// 按分取整，避免 0.1 + 0.2 这类浮点误差把刚好花完算成「超支 $0.00」
+const cents = (n) => Math.round(n * 100) / 100;
 const toMonth = (amt, freq) => (Number(amt) || 0) * (TO_MONTH[freq] || 1);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -105,7 +107,7 @@ function monthStats(m) {
   const budget = income - fixed;
   const byCat = {};
   monthExp.forEach((e) => (byCat[e.cat] = (byCat[e.cat] || 0) + e.amount));
-  return { income, fixed, weeks, spent, saved, savedIn, savedOut, budget, remaining: budget - spent - saved, monthExp, monthInc, byCat };
+  return { income, fixed, weeks, spent, saved, savedIn, savedOut, budget, remaining: cents(budget - spent - saved), monthExp, monthInc, byCat };
 }
 function summary() {
   const now = new Date();
@@ -120,7 +122,7 @@ function summary() {
   // 按目前（不含今天）的日均花销推算月底总花销
   const pastSpent = s.spent - spentToday;
   const projected = day > 3 ? pastSpent / (day - 1) * daysInMonth : null;
-  return { ...s, daysLeft, daysInMonth, spentToday, todayBudget, todayLeft: todayBudget - spentToday,
+  return { ...s, daysLeft, daysInMonth, spentToday, todayBudget, todayLeft: cents(todayBudget - spentToday),
     daily: s.remaining / daysLeft, projected };
 }
 // 第一笔数据所在的月份（没有数据就是本月）
@@ -469,11 +471,11 @@ function addWarning(n) {
   const date = $('#addDate').value || ymd(new Date());
   const m = date.slice(0, 7);
   if (m !== thisMonth()) {
-    const after = monthStats(m).remaining - n;
+    const after = cents(monthStats(m).remaining - n);
     return after < 0 ? { level: 'over', text: `⚠️ 这笔会让 ${+m.slice(5)} 月超支 ${money(-after)}` } : null;
   }
   const s = summary();
-  const after = s.remaining - n;
+  const after = cents(s.remaining - n);
   if (after < 0) {
     return { level: 'over', text: s.remaining < 0
       ? `⚠️ 本月已经超支，记下后共超支 ${money(-after)}`
@@ -648,7 +650,7 @@ function goalForm(g) {
 
 // 从当月收入存钱前的超支确认
 async function confirmSaveFromMonth(n) {
-  const after = summary().remaining - n;
+  const after = cents(summary().remaining - n);
   return !(hasIncome() && after < 0) || ask(`存入后本月会超支 ${money(-after)}，还要存吗？`, { ok: '还是存' });
 }
 const today = () => ymd(new Date());
