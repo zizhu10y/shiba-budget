@@ -884,9 +884,33 @@ document.addEventListener('change', (e) => {
 $('#addDate').addEventListener('change', updateAdd);
 $('#formBody').addEventListener('submit', (e) => { e.preventDefault(); $('#formSave').click(); });
 
-// 回到前台时刷新（跨天、跨月）
-document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#addSheet').hidden && $('#formSheet').hidden && $('#confirmSheet').hidden) render(); });
+// ---------- 月末结余自动进小金猪 ----------
+// 进入新月份后，把之前每个月没花完的钱记成那个月最后一天存进小金猪（算那个月的存入）。
+// autoPiggyUpTo 记到哪个月已经处理过；第一次用这个功能时只处理上个月，不翻旧账。
+const addMonths = (m, n) => { const d = new Date(+m.slice(0, 4), +m.slice(5) - 1 + n, 1); return ymd(d).slice(0, 7); };
+function autoPiggy() {
+  const last = addMonths(thisMonth(), -1);
+  let m = state.autoPiggyUpTo ? addMonths(state.autoPiggyUpTo, 1) : last;
+  if (m > last) return;
+  const moved = [];
+  for (; m <= last; m = addMonths(m, 1)) {
+    const used = [state.expenses, state.incomes, state.piggy].some((xs) => xs.some((x) => x.date.startsWith(m)));
+    const left = used && hasIncome() ? monthStats(m).remaining : 0;
+    if (left > 0) {
+      const end = ymd(new Date(+m.slice(0, 4), +m.slice(5), 0));
+      state.piggy.push({ id: uid(), date: end, amount: left, month: true, note: `${+m.slice(5)} 月结余` });
+      moved.push(`${+m.slice(5)} 月剩下的 ${money(left)}`);
+    }
+  }
+  state.autoPiggyUpTo = last;
+  save();
+  if (moved.length) setTimeout(() => toast(`🐷 ${moved.join("、")} 自动放进小金猪啦`), 600);
+}
 
+// 回到前台时刷新（跨天、跨月）
+document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#addSheet').hidden && $('#formSheet').hidden && $('#confirmSheet').hidden) { autoPiggy(); render(); } });
+
+autoPiggy();
 render();
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
