@@ -48,10 +48,10 @@ function save() {
 // ---------- 工具 ----------
 const $ = (s) => document.querySelector(s);
 const fmt = new Intl.NumberFormat(CUR_CFG.locale, { style: 'currency', currency: CUR });
-const money = (n) => fmt.format(Math.round(n * 100) / 100);
+const money = (n) => fmt.format(Math.round(n * 100) / 100 + 0); // + 0 把 -0 变成 0，避免显示「-$0.00」
 const moneyShort = (n) => money(n).replace(/\.00$/, '');
 // 按分取整，避免 0.1 + 0.2 这类浮点误差把刚好花完算成「超支 $0.00」
-const cents = (n) => Math.round(n * 100) / 100;
+const cents = (n) => Math.round(n * 100) / 100 + 0;
 const toMonth = (amt, freq) => (Number(amt) || 0) * (TO_MONTH[freq] || 1);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
