@@ -196,17 +196,25 @@ function homeView() {
 let ovMode = 'month', ovMonth = thisMonth(), ovYear = new Date().getFullYear();
 const shiftMonth = (m, n) => { const d = new Date(+m.slice(0, 4), +m.slice(5) - 1 + n, 1); return ymd(d).slice(0, 7); };
 
-function catBreakdown(byCat) {
+// 分类汇总；点一个分类展开这段时间里这个分类的每一笔（exps = 这段时间的全部支出）
+function catBreakdown(byCat, exps) {
   const rows = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   const total = rows.reduce((a, r) => a + r[1], 0);
   if (!rows.length) return '<div class="empty">🐾 这段时间没有支出</div>';
   return rows.map(([id, v]) => {
     const c = catOf(id), pct = (v / total) * 100;
-    return `<div class="item cat-row">
+    const items = exps.filter((e) => e.cat === id).sort((a, b) => (b.date + b.t).localeCompare(a.date + a.t));
+    return `<button class="item cat-row" data-cat-toggle>
       <div class="emoji">${c.e}</div>
-      <div class="mid"><div>${c.name} <small>${pct.toFixed(0)}%</small></div><div class="bar thin"><i style="width:${pct}%"></i></div></div>
+      <div class="mid"><div>${c.name} <small>${pct.toFixed(0)}% · ${items.length} 笔</small></div><div class="bar thin"><i style="width:${pct}%"></i></div></div>
       <div class="amt num">${money(v)}</div>
-    </div>`;
+      <span class="chev-down">›</span>
+    </button>
+    <div class="cat-items" hidden>${items.map((e) => `<div class="cat-item">
+        <span class="d num">${+e.date.slice(5, 7)}/${+e.date.slice(8)}</span>
+        <span class="n">${e.note ? esc(e.note) : '<i>没写备注</i>'}</span>
+        <span class="num">${money(e.amount)}</span>
+      </div>`).join('')}</div>`;
   }).join('');
 }
 
@@ -258,7 +266,8 @@ function monthOverview() {
       ${statRows(s, cur ? '目前剩余' : '当月结余', cur ? '本月目前共省下' : '这个月共省下')}
     </section>
     <h2>分类</h2>
-    <div class="list">${catBreakdown(s.byCat)}</div>`;
+    <div class="list">${catBreakdown(s.byCat, s.monthExp)}</div>
+    ${s.monthExp.length ? '<p class="hint">点分类看每一笔</p>' : ''}`;
 }
 
 function yearOverview() {
@@ -299,7 +308,8 @@ function yearOverview() {
       <p class="hint">点柱子看那个月的明细</p>
     </section>
     <h2>全年分类</h2>
-    <div class="list">${catBreakdown(byCat)}</div>`
+    <div class="list">${catBreakdown(byCat, state.expenses.filter((e) => e.date.startsWith(y) && e.date.slice(0, 7) >= start && e.date.slice(0, 7) <= end))}</div>
+    <p class="hint">点分类看每一笔</p>`
     : '<div class="card empty">🐾 这一年还没有记录</div>'}`;
 }
 
@@ -810,6 +820,12 @@ document.addEventListener('click', async (e) => {
   if (!t || t.closest('#confirmSheet')) return;
   const d = t.dataset;
 
+  if ('catToggle' in d) {
+    const box = t.nextElementSibling;
+    box.hidden = !box.hidden;
+    t.classList.toggle('open', !box.hidden);
+    return;
+  }
   if (t.classList.contains('sheet-bg')) { if (e.target === t) t.hidden = true; return; }
   if ('close' in d) return (t.closest('.sheet-bg').hidden = true);
   if (d.tab) {

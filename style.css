@@ -244,3 +244,14 @@ body { background-image: var(--pattern); background-size: 200px 200px; }
 .steps { margin: 8px 0 0; padding: 0 0 0 22px; font-size: 16px; line-height: 1.6; }
 .steps li { margin: 10px 0; }
 .steps .link { font-size: 14px; margin-left: 6px; }
+
+/* 总览分类：点开看每一笔 */
+.cat-row { width: 100%; text-align: left; }
+.cat-row .chev-down { color: var(--muted); font-size: 20px; transition: transform .2s; }
+.cat-row.open .chev-down { transform: rotate(90deg); }
+.cat-items { background: var(--key); border-bottom: 1px solid var(--line); padding: 4px 0; }
+.cat-items[hidden] { display: none; }
+.cat-item { display: flex; gap: 12px; align-items: baseline; padding: 9px 16px 9px 68px; font-size: 15px; }
+.cat-item .d { color: var(--muted); font-size: 13px; width: 40px; flex: none; }
+.cat-item .n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cat-item .n i { color: var(--muted); font-style: normal; }
