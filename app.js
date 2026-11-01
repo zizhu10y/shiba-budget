@@ -266,8 +266,7 @@ function monthOverview() {
       ${statRows(s, cur ? '目前剩余' : '当月结余', cur ? '本月目前共省下' : '这个月共省下')}
     </section>
     <h2>分类</h2>
-    <div class="list">${catBreakdown(s.byCat, s.monthExp)}</div>
-    ${s.monthExp.length ? '<p class="hint">点分类看每一笔</p>' : ''}`;
+    <div class="list">${catBreakdown(s.byCat, s.monthExp)}</div>`;
 }
 
 function yearOverview() {
@@ -308,8 +307,7 @@ function yearOverview() {
       <p class="hint">点柱子看那个月的明细</p>
     </section>
     <h2>全年分类</h2>
-    <div class="list">${catBreakdown(byCat, state.expenses.filter((e) => e.date.startsWith(y) && e.date.slice(0, 7) >= start && e.date.slice(0, 7) <= end))}</div>
-    <p class="hint">点分类看每一笔</p>`
+    <div class="list">${catBreakdown(byCat, state.expenses.filter((e) => e.date.startsWith(y) && e.date.slice(0, 7) >= start && e.date.slice(0, 7) <= end))}</div>`
     : '<div class="card empty">🐾 这一年还没有记录</div>'}`;
 }
 
