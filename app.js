@@ -196,6 +196,23 @@ function homeView() {
 let ovMode = 'month', ovMonth = thisMonth(), ovYear = new Date().getFullYear();
 const shiftMonth = (m, n) => { const d = new Date(+m.slice(0, 4), +m.slice(5) - 1 + n, 1); return ymd(d).slice(0, 7); };
 
+// 收入明细：一行汇总，点开看每一笔（只有记了收入的「每周不固定」模式才有）
+function incomeBreakdown(incs) {
+  if (!incs.length) return "";
+  const items = [...incs].sort((a, b) => (b.date + b.t).localeCompare(a.date + a.t));
+  return `<h2>收入</h2>
+    <div class="list"><button class="item cat-row" data-cat-toggle>
+      <div class="emoji">💰</div>
+      <div class="mid"><div>收入 <small>${items.length} 笔</small></div></div>
+      <div class="amt num plus">+${money(items.reduce((a, i) => a + i.amount, 0))}</div>
+      <span class="chev-down">›</span>
+    </button>
+    <div class="cat-items" hidden>${items.map((i) => `<div class="cat-item">
+        <span class="d num">${+i.date.slice(5, 7)}/${+i.date.slice(8)}</span>
+        <span class="n">${i.note ? esc(i.note) : '<i>没写备注</i>'}</span>
+        <span class="num plus">+${money(i.amount)}</span>
+      </div>`).join("")}</div></div>`;
+}
 // 分类汇总；点一个分类展开这段时间里这个分类的每一笔（exps = 这段时间的全部支出）
 function catBreakdown(byCat, exps) {
   const rows = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
@@ -265,6 +282,7 @@ function monthOverview() {
       ${over ? `<div class="warn">🥺 这个月超支了 ${money(-s.remaining)}</div>` : ''}
       ${statRows(s, cur ? '目前剩余' : '当月结余', cur ? '本月目前共省下' : '这个月共省下')}
     </section>
+    ${incomeBreakdown(s.monthInc)}
     <h2>分类</h2>
     <div class="list">${catBreakdown(s.byCat, s.monthExp)}</div>`;
 }
@@ -280,9 +298,9 @@ function yearOverview() {
     for (const k in tot) tot[k] += s[k];
     for (const c in s.byCat) byCat[c] = (byCat[c] || 0) + s.byCat[c];
   });
-  // 柱子 = 日常花销 + 存入目标；虚线 = 每月可花额度
-  const budget = counted.length ? counted.reduce((a, s) => a + s.budget, 0) / counted.length : 0;
-  const max = Math.max(budget, ...counted.map((s) => s.spent + s.saved), 1);
+  // 每月两根柱子：收入、支出（固定支出 + 日常花销；存钱不算支出）
+  const out = (s) => s.fixed + s.spent;
+  const max = Math.max(...counted.map((s) => Math.max(s.income, out(s))), 1);
   const overMonths = counted.filter((s) => s.remaining < 0).length;
   return `
     <div class="pager">
@@ -297,15 +315,15 @@ function yearOverview() {
       ${statRows(tot, '全年结余', '全年共省下')}
     </section>
     <section class="card">
-      <div class="chart" style="--b:${(budget / max).toFixed(4)}">
-        ${budget > 0 ? '<div class="budget-line"></div>' : ''}
-        ${stats.map((s, i) => `<button class="col ${s ? '' : 'off'} ${s && s.remaining < 0 ? 'over' : ''}" ${s ? `data-ov-month="${months[i]}"` : 'disabled'}
-            aria-label="${i + 1} 月 ${s ? money(s.spent + s.saved) : '无数据'}">
-          <i style="height:${s ? ((s.spent + s.saved) / max) * 100 : 0}%"></i><span>${i + 1}</span></button>`).join('')}
+      <div class="chart">
+        ${stats.map((s, i) => `<button class="col ${s ? '' : 'off'}" ${s ? `data-ov-month="${months[i]}"` : 'disabled'}
+            aria-label="${i + 1} 月 ${s ? `收入 ${money(s.income)}，支出 ${money(out(s))}` : '无数据'}">
+          <i class="inc" style="height:${s ? (s.income / max) * 100 : 0}%"></i><i class="out ${s && out(s) > s.income ? 'over' : ''}" style="height:${s ? (out(s) / max) * 100 : 0}%"></i><span>${i + 1}</span></button>`).join('')}
       </div>
-      <div class="legend"><span><i class="sw"></i>每月花销+存入</span>${budget > 0 ? `<span><i class="sw dash"></i>${variableIncome() ? '月均可花' : '每月可花'} ${moneyShort(Math.round(budget))}</span>` : ''}</div>
+      <div class="legend"><span><i class="sw inc"></i>收入</span><span><i class="sw"></i>支出（固定 + 日常）</span><span><i class="sw over"></i>支出比收入多</span></div>
       <p class="hint">点柱子看那个月的明细</p>
     </section>
+    ${incomeBreakdown(state.incomes.filter((i) => i.date.startsWith(y)))}
     <h2>全年分类</h2>
     <div class="list">${catBreakdown(byCat, state.expenses.filter((e) => e.date.startsWith(y) && e.date.slice(0, 7) >= start && e.date.slice(0, 7) <= end))}</div>`
     : '<div class="card empty">🐾 这一年还没有记录</div>'}`;
@@ -385,8 +403,12 @@ function homeWarning(s) {
   return '';
 }
 
+let goalTab = "must";
+// 当前这一页（必须完成 / 不着急）的目标，按 state.goals 里的顺序，也就是手动排的顺序
+const goalsIn = (t) => state.goals.filter((g) => !g.archived && !!g.relaxed === (t === "relaxed"));
 function goalsView() {
-  const goals = state.goals.filter((g) => !g.archived);
+  const goals = goalsIn(goalTab);
+  const n = { must: goalsIn("must").length, relaxed: goalsIn("relaxed").length };
   const pig = piggyBalance();
   return `
     <h1>存钱 💰</h1>
@@ -401,11 +423,17 @@ function goalsView() {
       </div>
     </section>
     <h2>存钱目标 🦴</h2>
-    ${goals.map((g) => {
+    <div class="seg goal-seg">
+      <button data-goal-tab="must" class="${goalTab === "must" ? "on" : ""}">必须完成${n.must ? ` · ${n.must}` : ""}</button>
+      <button data-goal-tab="relaxed" class="${goalTab === "relaxed" ? "on" : ""}">不着急${n.relaxed ? ` · ${n.relaxed}` : ""}</button>
+    </div>
+    ${goals.map((g, i) => {
       const saved = goalBalance(g);
       const pct = g.target > 0 ? Math.min(100, (saved / g.target) * 100) : 0;
       return `<section class="card goal">
-        <div class="top"><span class="name">${esc(g.name)}</span><span class="pct num">${Math.floor(pct)}%${pct >= 100 ? ' 🎉' : ''}</span></div>
+        <div class="top"><span class="name">${esc(g.name)}</span><span class="pct num">${Math.floor(pct)}%${pct >= 100 ? ' 🎉' : ''}</span>${goals.length > 1 ? `<span class="order">
+          <button data-goal-move="-1" data-id="${g.id}" ${i === 0 ? "disabled" : ""} aria-label="往前排">↑</button>
+          <button data-goal-move="1" data-id="${g.id}" ${i === goals.length - 1 ? "disabled" : ""} aria-label="往后排">↓</button></span>` : ""}</div>
         <div class="bar"><i style="width:${pct}%"></i></div>
         <div class="sub num">已存 ${money(saved)} / ${moneyShort(g.target)}${pct < 100 ? ` · 还差 ${money(g.target - saved)}` : ''}</div>
         ${deadlineLine(g)}
@@ -416,7 +444,7 @@ function goalsView() {
         </div>
         ${saved > 0 ? `<button class="btn pig-btn" data-to-piggy="${g.id}">🐷 放进小金猪</button>` : ''}
       </section>`;
-    }).join('') || '<div class="card empty">还没有目标，给柴柴定个小目标吧</div>'}
+    }).join('') || `<div class="card empty">${goalTab === "must" ? "还没有必须完成的目标" : "还没有不着急的目标"}，给柴柴定个小目标吧</div>`}
     <button class="btn" data-new-goal>＋ 新目标</button>
     <p class="hint">从「本月收入」存的钱会从当月可花里扣掉；已有积蓄、小金猪和目标之间挪来挪去的钱，不算进任何一个月。</p>`;
 }
@@ -630,11 +658,12 @@ function goalForm(g) {
     <label><span>目标金额 (${CUR})</span>${moneyInput('target', g?.target)}</label>
     <label><span>截止日期（可选）：这天之前要存够</span><input name="due" type="date" value="${g?.due || ''}"></label>
     <button type="button" class="link" data-clear-due style="margin-top:6px${g?.due ? '' : ';display:none'}">不设截止日期</button>
-    <label><span>这个目标</span>${segHtml('level', g?.relaxed ? 'relaxed' : 'must', ['must', 'relaxed'], { must: '必须完成', relaxed: '不着急' })}</label>
+    <label><span>这个目标</span>${segHtml('level', g ? (g.relaxed ? 'relaxed' : 'must') : goalTab, ['must', 'relaxed'], { must: '必须完成', relaxed: '不着急' })}</label>
     ${g ? '<button type="button" class="btn danger" data-del-goal style="margin-top:20px">删除这个目标</button>' : ''}`,
     (f) => {
       const name = f.name.value.trim(), target = num(f.target.value), due = f.due.value || '', relaxed = f.level.value === 'relaxed';
       if (!name || !target) { toast('请填写名称和金额'); return false; }
+      goalTab = relaxed ? 'relaxed' : 'must';
       if (g) Object.assign(g, { name, target, due, relaxed });
       else state.goals.push({ id: uid(), name, target, due, relaxed, deposits: [] });
     },
@@ -818,6 +847,17 @@ document.addEventListener('click', async (e) => {
   if (!t || t.closest('#confirmSheet')) return;
   const d = t.dataset;
 
+  if (d.goalTab) { goalTab = d.goalTab; return render(); }
+  if (d.goalMove) {
+    // 和同一页里相邻的目标交换位置
+    const list = goalsIn(goalTab), i = list.findIndex((g) => g.id === d.id), j = i + +d.goalMove;
+    if (i < 0 || !list[j]) return;
+    const a = state.goals.indexOf(list[i]), b = state.goals.indexOf(list[j]);
+    [state.goals[a], state.goals[b]] = [state.goals[b], state.goals[a]];
+    save();
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+    return;
+  }
   if ('catToggle' in d) {
     const box = t.nextElementSibling;
     box.hidden = !box.hidden;
