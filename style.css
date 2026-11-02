@@ -189,14 +189,12 @@ h2 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 24px 4px 8p
 .chart .col { flex: 1; height: 100%; display: flex; align-items: flex-end; gap: 2px; position: relative; padding: 0; }
 .chart .col i { flex: 1; display: block; background: var(--brand); border-radius: 3px 3px 0 0; min-height: 2px; }
 .chart .col i.inc { background: var(--income); }
-.chart .col i.out.over { background: var(--danger); }
 .chart .col.off i { background: var(--line); }
 .chart .col span { position: absolute; bottom: -20px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--muted); }
 .chart .budget-line { position: absolute; left: 0; right: 0; bottom: calc(20px + (100% - 20px) * var(--b)); border-top: 2px dashed var(--muted); opacity: .7; pointer-events: none; z-index: 1; }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--brand); margin-right: 4px; vertical-align: -1px; }
 .legend .sw.inc { background: var(--income); }
-.legend .sw.over { background: var(--danger); }
 .legend .sw.dash { background: none; border-top: 2px dashed var(--muted); height: 0; width: 14px; border-radius: 0; vertical-align: 3px; }
 
 /* 背景：小柴犬、爪印、骨头、爱心平铺图案（淡淡的，不影响阅读） */
@@ -265,3 +263,9 @@ body { background-image: var(--pattern); background-size: 200px 200px; }
 .cat-item .d { color: var(--muted); font-size: 13px; width: 40px; flex: none; }
 .cat-item .n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cat-item .n i { color: var(--muted); font-style: normal; }
+
+/* 按周算：标题里的日期、房租罐 */
+h1 small { font-weight: 500; margin-left: 4px; }
+.jar { padding: 14px 16px; }
+.jar .jar-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; }
+.jar .sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
