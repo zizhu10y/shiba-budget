@@ -110,42 +110,43 @@ function monthStats(m) {
   monthExp.forEach((e) => (byCat[e.cat] = (byCat[e.cat] || 0) + e.amount));
   return { income, fixed, weeks, spent, saved, savedIn, savedOut, budget, remaining: cents(budget - spent - saved), monthExp, monthInc, byCat };
 }
-// ---------- 按周算（收入每周不固定时）----------
+// ---------- 按周算每天可花（收入每周不固定时）----------
+// 首页大数字还是本月还能花；每天可花只看这一周：(这周收入 − 这周固定支出 − 这周已花 − 这周存的) ÷ 这周剩几天。
 // 一周从设置里的「周几」开始，这一天扣一周的固定支出（月 × 12 ÷ 52）。
-// 没花完的钱滚到下周；钱不够就从之后的收入里补；每个月最后一周结束时，剩下的钱自动进小金猪。
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const weekStart = () => state.settings.weekStart ?? 1;
 const addDays = (s, n) => { const [y, m, d] = s.split('-').map(Number); return ymd(new Date(y, m - 1, d + n)); };
 const weekDay = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).getDay(); };
 const weekOf = (s) => addDays(s, -((weekDay(s) - weekStart() + 7) % 7)); // s 所在这周的第一天
 const md = (s) => `${+s.slice(5, 7)}/${+s.slice(8)}`;
-// 从哪天开始往下滚：上次结余进小金猪的第二天；第一次用时从本月 1 号开始（之前的月份已按月结过）
-const rollFrom = () => state.weekFrom || thisMonth() + '-01';
-// [from, to] 这些天（含两头）的收支
-function rangeStats(from, to) {
-  const inR = (x) => x.date >= from && x.date <= to;
-  const incs = state.incomes.filter(inR);
-  const exps = state.expenses.filter(inR);
-  let weeks = 0;
-  for (let d = from; d <= to; d = addDays(d, 1)) if (weekDay(d) === weekStart()) weeks++;
-  const fixed = fixedMonthly() * 12 / 52 * weeks;
-  const saved = sum([...state.goals.flatMap((g) => g.deposits), ...state.piggy].filter((x) => x.month !== false && inR(x)));
-  const income = sum(incs), spent = sum(exps);
-  return { incs, exps, income, fixed, weeks, spent, saved, remaining: cents(income - fixed - spent - saved) };
-}
-function weekSummary() {
+// 月末自动放进小金猪的结余不算这周存的钱，不然会把这周的额度吃掉
+const autoSaved = (x) => x.auto || /月结余$/.test(x.note || '');
+function weekStats() {
   const t = today();
   const start = weekOf(t), end = addDays(start, 6);
-  const from = rollFrom();
-  // 之前几周剩下（或差）的钱，加上上次结算时还欠着的
-  const carry = cents((state.weekCarry || 0) + (from < start ? rangeStats(from, addDays(start, -1)).remaining : 0));
-  const w = rangeStats(from > start ? from : start, end);
-  const remaining = cents(carry + w.remaining);
+  const inR = (x) => x.date >= start && x.date <= end;
+  const income = sum(state.incomes.filter(inR));
+  const exps = state.expenses.filter(inR);
+  const spent = sum(exps);
+  const fixed = fixedMonthly() * 12 / 52;
+  const saved = sum([...state.goals.flatMap((g) => g.deposits), ...state.piggy].filter((x) => x.month !== false && inR(x) && !autoSaved(x)));
   const daysLeft = (weekDay(end) - weekDay(t) + 7) % 7 + 1;
-  const spentToday = sum(w.exps.filter((e) => e.date === t));
-  const todayBudget = (remaining + spentToday) / daysLeft;
-  return { ...w, week: true, start, end, carry, budget: carry + w.income - w.fixed, remaining, daysLeft, spentToday,
-    todayBudget, todayLeft: cents(todayBudget - spentToday), daily: remaining / daysLeft, projected: null };
+  const spentToday = sum(exps.filter((e) => e.date === t));
+  const cover = state.piggy.find((p) => p.id === 'cover-' + start);
+  return { start, end, income, fixed, spent, saved, daysLeft, spentToday, covered: cover ? -cover.amount : 0, remaining: cents(income - fixed - spent - saved) };
+}
+// 这周的钱不够扣（负数）时，自动从小金猪补上，首页就不会出现负数；
+// 之后记了收入或删了花销，补多的钱会自动还回小金猪。每周只有一条「补这周的缺口」记录，随时按需要调整
+function coverWeek() {
+  if (!variableIncome()) return;
+  const wk = weekStats();
+  const base = wk.remaining - wk.covered; // 不算小金猪补的，这周本来剩多少
+  const need = cents(Math.min(Math.max(0, -base), Math.max(0, piggyBalance() + wk.covered)));
+  if (need === wk.covered) return;
+  const id = 'cover-' + wk.start;
+  state.piggy = state.piggy.filter((p) => p.id !== id);
+  if (need > 0) state.piggy.push({ id, date: today(), amount: -need, month: true, note: '补这周的缺口' });
+  save();
 }
 // 房租罐：房租不是每周交时，每周先留出的那份房租攒在这里，看下次交租的钱备好了多少（已经不算在可花的钱里）
 function rentJar() {
@@ -166,7 +167,6 @@ function rentJar() {
 }
 
 function summary() {
-  if (variableIncome()) return weekSummary();
   const now = new Date();
   const s = monthStats(thisMonth());
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -179,8 +179,13 @@ function summary() {
   // 按目前（不含今天）的日均花销推算月底总花销
   const pastSpent = s.spent - spentToday;
   const projected = day > 3 ? pastSpent / (day - 1) * daysInMonth : null;
-  return { ...s, daysLeft, daysInMonth, spentToday, todayBudget, todayLeft: cents(todayBudget - spentToday),
+  const base = { ...s, daysLeft, daysInMonth, spentToday, todayBudget, todayLeft: cents(todayBudget - spentToday),
     daily: s.remaining / daysLeft, projected };
+  if (!variableIncome()) return base;
+  // 收入不固定：每天可花、今天额度改按这一周算
+  const wk = weekStats();
+  const wkToday = (wk.remaining + wk.spentToday) / wk.daysLeft;
+  return { ...base, wk, daysLeft: wk.daysLeft, todayBudget: wkToday, todayLeft: cents(wkToday - wk.spentToday), daily: wk.remaining / wk.daysLeft };
 }
 // 第一笔数据所在的月份（没有数据就是本月）
 function firstMonth() {
@@ -191,6 +196,7 @@ function firstMonth() {
 // ---------- 页面 ----------
 let tab = 'home';
 function render() {
+  coverWeek();
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('fab').hidden = tab !== 'home'; // 记一笔只在首页
   $('#view').innerHTML = { home: homeView, overview: overviewView, goals: goalsView, settings: settingsView }[tab]();
@@ -203,20 +209,12 @@ function homeView() {
   const vi = variableIncome();
   const used = s.budget > 0 ? Math.min(100, ((s.spent + s.saved) / s.budget) * 100) : 0;
   const neg = s.remaining < 0;
-  const per = vi ? '这周' : '这个月';
-  const mood = !hasSetup ? (vi ? '🐕 发工资了就点 ＋ 记一笔收入' : '🐕 先去「设置」填收入吧') : neg ? (vi ? '🥺 这周的钱不够啦' : '🥺 呜…这个月超支了') : s.remaining === 0 && s.budget > 0 ? `🐕 ${per}刚好花完啦` : used > 80 ? '🐕 省着点花哦' : `🐕 汪！${per}还能花`;
-  const list = (vi ? [...s.exps, ...s.incs.map((i) => ({ ...i, inc: true }))] : s.monthExp)
+  const mood = !hasSetup ? (vi ? '🐕 发工资了就点 ＋ 记一笔收入' : '🐕 先去「设置」填收入吧') : neg ? '🥺 呜…这个月超支了' : s.wk && s.wk.covered ? '🐷 这周不够的钱，小金猪先补上啦' : s.remaining === 0 && s.budget > 0 ? '🐕 这个月刚好花完啦' : used > 80 ? '🐕 省着点花哦' : '🐕 汪！这个月还能花';
+  const list = [...s.monthExp, ...(vi ? s.monthInc.map((i) => ({ ...i, inc: true })) : [])]
     .sort((a, b) => (b.date + b.t).localeCompare(a.date + a.t));
-  const rows = vi ? `
-      ${s.carry ? `<div class="row"><span>${s.carry > 0 ? '前几周剩下' : '前几周差的'}</span><span class="num">${s.carry > 0 ? '+' : '−'}${money(Math.abs(s.carry))}</span></div>` : ''}
-      <div class="row"><span>这周到账收入${s.incs.length ? `（${s.incs.length} 笔）` : ''}</span><span class="num">${money(s.income)}</span></div>
-      <div class="row"><span>这周固定支出${s.fixed ? '（含房租）' : ''}</span><span class="num">−${money(s.fixed)}</span></div>
-      <div class="row"><span>这周已花</span><span class="num">−${money(s.spent)}</span></div>` : `
-      <div class="row"><span>月收入</span><span class="num">${money(s.income)}</span></div>
-      <div class="row"><span>固定支出</span><span class="num">−${money(s.fixed)}</span></div>
-      <div class="row"><span>本月已花</span><span class="num">−${money(s.spent)}</span></div>`;
+  const wk = s.wk;
   return `
-    <h1>${vi ? `这周 <small class="num">${md(s.start)} – ${md(s.end)}</small>` : `${new Date().getMonth() + 1} 月`}</h1>
+    <h1>${new Date().getMonth() + 1} 月</h1>
     <section class="card hero">
       <div class="label">${mood}</div>
       <div class="big num ${neg ? 'neg' : ''}">${money(s.remaining)}</div>
@@ -224,19 +222,30 @@ function homeView() {
       <div class="daily">
         <span class="label">每天可花</span>
         <b class="num ${neg ? 'neg' : ''}">${money(Math.max(0, s.daily))}</b>
-        <span class="label">· 剩 ${s.daysLeft} 天</span>
+        <span class="label">· ${wk ? '这周' : ''}剩 ${s.daysLeft} 天</span>
       </div>
     </section>
     ${hasSetup ? homeWarning(s) : ''}
     ${rentReminder()}
     ${deadlineWarning()}
     ${rentJar()}
-    <section class="card rows">${rows}
+    ${wk ? `<section class="card rows week">
+      <div class="row head"><span>这周 ${md(wk.start)} – ${md(wk.end)}</span><span class="num">还剩 ${money(wk.remaining)}</span></div>
+      <div class="row"><span>这周收入</span><span class="num">${money(wk.income)}</span></div>
+      <div class="row"><span>这周固定支出${state.settings.rent ? '（含房租）' : ''}</span><span class="num">−${money(wk.fixed)}</span></div>
+      <div class="row"><span>这周已花</span><span class="num">−${money(wk.spent)}</span></div>
+      ${wk.saved + wk.covered ? `<div class="row"><span>这周存的</span><span class="num">−${money(wk.saved + wk.covered)}</span></div>` : ''}
+      ${wk.covered ? `<div class="row"><span>🐷 小金猪补上</span><span class="num">+${money(wk.covered)}</span></div>` : ''}
+    </section>` : ''}
+    <section class="card rows">
+      <div class="row"><span>${vi ? `本月已到账收入${s.monthInc.length ? `（${s.monthInc.length} 笔）` : ''}` : '月收入'}</span><span class="num">${money(s.income)}</span></div>
+      <div class="row"><span>固定支出${s.weeks != null ? `（已扣 ${s.weeks} 周）` : ''}</span><span class="num">−${money(s.fixed)}</span></div>
+      <div class="row"><span>本月已花</span><span class="num">−${money(s.spent)}</span></div>
       ${savedRow(s.saved)}
       <div class="row"><span>今天额度</span><span class="num">${money(Math.max(0, s.todayBudget))}</span></div>
       <div class="row"><span>今天已花</span><span class="num">${money(s.spentToday)}</span></div>
     </section>
-    <h2>${vi ? '这周明细' : '本月明细'}</h2>
+    <h2>本月明细</h2>
     <div class="list">
       ${list.length ? list.map((e) => {
         if (e.inc) return `<div class="item">
@@ -458,8 +467,9 @@ function rentReminder() {
 
 // 首页预警：已超支 > 今天超额 > 按速度月底会超支
 function homeWarning(s) {
-  if (s.week && s.remaining < 0) return `<div class="warn card soft">🐾 这周的钱还差 ${money(-s.remaining)}，下次到账的收入会先补上，这几天省着点花</div>`;
   if (s.remaining < 0) return `<div class="warn card">🥺 本月已超支 ${money(-s.remaining)}，剩下 ${s.daysLeft} 天尽量别花啦</div>`;
+  if (s.wk && s.wk.covered && s.wk.remaining >= 0) return `<div class="warn card soft">🐷 这周的钱不够，小金猪先补了 ${money(s.wk.covered)}，之后记了收入会自动还回去</div>`;
+  if (s.wk && s.wk.remaining < 0) return `<div class="warn card soft">🐾 这周的收入不够这周花，超了 ${money(-s.wk.remaining)}，这几天省着点</div>`;
   if (s.todayLeft < 0) return `<div class="warn card soft">🐕 今天超出额度 ${money(-s.todayLeft)}，后面几天要省一点哦</div>`;
   const cap = s.budget - s.saved;
   if (!variableIncome() && s.projected != null && s.projected > cap) {
@@ -576,15 +586,15 @@ function addWarning(n) {
     return after < 0 ? { level: 'over', text: `⚠️ 这笔会让 ${+m.slice(5)} 月超支 ${money(-after)}` } : null;
   }
   const s = summary();
-  const per = s.week ? '这周' : '本月';
   const after = cents(s.remaining - n);
   if (after < 0) {
     return { level: 'over', text: s.remaining < 0
-      ? `⚠️ ${per}已经超支，记下后共超支 ${money(-after)}`
-      : `⚠️ 这笔会让${per}超支 ${money(-after)}` };
+      ? `⚠️ 本月已经超支，记下后共超支 ${money(-after)}`
+      : `⚠️ 这笔会让本月超支 ${money(-after)}` };
   }
   if (date === ymd(new Date()) && n > s.todayLeft) {
-    return { level: 'tight', text: `🐕 超过今天额度（还剩 ${money(Math.max(0, s.todayLeft))}），之后每天可花降到 ${money(after / s.daysLeft)}` };
+    const left = s.wk ? s.wk.remaining - n : after; // 收入不固定时每天可花按这周算
+    return { level: 'tight', text: `🐕 超过今天额度（还剩 ${money(Math.max(0, s.todayLeft))}），之后每天可花降到 ${money(Math.max(0, left) / s.daysLeft)}` };
   }
   return null;
 }
@@ -616,7 +626,7 @@ async function commitAdd() {
   close('#addSheet');
   tab = 'home';
   render();
-  toast(w && w.level === 'over' ? `🥺 已记下，${variableIncome() ? '这周' : '本月'}超支了` : `${catOf(cat).e} 记下 ${money(n)}`);
+  toast(w && w.level === 'over' ? `🥺 已记下，本月超支了` : `${catOf(cat).e} 记下 ${money(n)}`);
 }
 
 function commitIncome(n) {
@@ -682,11 +692,10 @@ function incomeForm() {
     </div>
     <div data-weekly>
       <label><span>一周从哪天开始（比如发工资那天）</span><select name="ws">${WEEKDAYS.map((d, i) => `<option value="${i}" ${i === weekStart() ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
-      <p class="hint">每次发工资时，点 ＋ 切到「收入」记一笔。首页按周算：这周能花 = 这周到账的收入 − 这周的固定支出 − 已花，不做预估。没花完的滚到下周，每个月最后一周过完，剩下的自动放进小金猪。</p>
+      <p class="hint">每次发工资时，点 ＋ 切到「收入」记一笔。本月可花 = 本月已到账的收入 − 固定支出 − 已花，不做预估；每天可花按这一周算：(这周收入 − 这周固定支出 − 这周已花) ÷ 这周剩几天。</p>
     </div>`,
     (f) => {
       // 从固定收入切到每周不固定：之前的月份已经按月结过，从本月 1 号开始按周滚
-      if (s.incomeMode !== 'weekly' && f.mode.value === 'weekly') { state.weekFrom = thisMonth() + '-01'; state.weekCarry = 0; }
       s.incomeMode = f.mode.value; s.income = num(f.amt.value); s.incomeFreq = f.freq.value; s.weekStart = +f.ws.value;
     },
     (form) => {
@@ -761,7 +770,7 @@ function goalForm(g) {
 // 从当月收入存钱前的超支确认
 async function confirmSaveFromMonth(n) {
   const after = cents(summary().remaining - n);
-  return !(hasIncome() && after < 0) || ask(`存入后${variableIncome() ? '这周' : '本月'}会超支 ${money(-after)}，还要存吗？`, { ok: '还是存' });
+  return !(hasIncome() && after < 0) || ask(`存入后本月会超支 ${money(-after)}，还要存吗？`, { ok: '还是存' });
 }
 const today = () => ymd(new Date());
 
@@ -1016,29 +1025,9 @@ $('#formBody').addEventListener('submit', (e) => { e.preventDefault(); $('#formS
 // autoPiggyUpTo 记到哪个月已经处理过；第一次用这个功能时只处理上个月，不翻旧账。
 const addMonths = (m, n) => { const d = new Date(+m.slice(0, 4), +m.slice(5) - 1 + n, 1); return ymd(d).slice(0, 7); };
 function autoPiggy() {
-  const moved = variableIncome() ? weeklyPiggy() : monthlyPiggy();
+  const moved = monthlyPiggy();
   save();
   if (moved.length) setTimeout(() => toast(`🐷 ${moved.join("、")} 自动放进小金猪啦`), 600);
-}
-// 按周算时：等这个月最后一周过完（不在一周中间把钱收走），把一直滚下来没花完的钱放进小金猪；
-// 如果是差钱，就记在 weekCarry 里，从之后的收入里补
-function weeklyPiggy() {
-  const moved = [], t = today();
-  for (;;) {
-    const from = rollFrom();
-    const monthEnd = ymd(new Date(+from.slice(0, 4), +from.slice(5, 7), 0));
-    const sweep = addDays(weekOf(monthEnd), 6);
-    if (sweep >= t) break;
-    const left = cents((state.weekCarry || 0) + rangeStats(from, sweep).remaining);
-    if (left > 0) {
-      state.piggy.push({ id: uid(), date: sweep, amount: left, month: true, note: `${+monthEnd.slice(5, 7)} 月结余` });
-      moved.push(`${+monthEnd.slice(5, 7)} 月剩下的 ${money(left)}`);
-    }
-    state.weekCarry = hasIncome() ? Math.min(0, left) : 0;
-    state.weekFrom = addDays(sweep, 1);
-  }
-  state.autoPiggyUpTo = addMonths(thisMonth(), -1);
-  return moved;
 }
 function monthlyPiggy() {
   const last = addMonths(thisMonth(), -1);
@@ -1050,7 +1039,7 @@ function monthlyPiggy() {
     const left = used && hasIncome() ? monthStats(m).remaining : 0;
     if (left > 0) {
       const end = ymd(new Date(+m.slice(0, 4), +m.slice(5), 0));
-      state.piggy.push({ id: uid(), date: end, amount: left, month: true, note: `${+m.slice(5)} 月结余` });
+      state.piggy.push({ id: uid(), date: end, amount: left, month: true, auto: true, note: `${+m.slice(5)} 月结余` });
       moved.push(`${+m.slice(5)} 月剩下的 ${money(left)}`);
     }
   }

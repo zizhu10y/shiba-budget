@@ -264,8 +264,8 @@ body { background-image: var(--pattern); background-size: 200px 200px; }
 .cat-item .n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cat-item .n i { color: var(--muted); font-style: normal; }
 
-/* 按周算：标题里的日期、房租罐 */
-h1 small { font-weight: 500; margin-left: 4px; }
+/* 房租罐、这周小卡片 */
 .jar { padding: 14px 16px; }
 .jar .jar-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; }
 .jar .sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.rows.week .row.head { color: var(--text); font-weight: 600; }
