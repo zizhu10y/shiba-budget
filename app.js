@@ -158,12 +158,7 @@ function rentJar() {
   let weeks = 0;
   for (let d = addDays(prev, 1); d <= today(); d = addDays(d, 1)) if (weekDay(d) === weekStart()) weeks++;
   const ready = Math.min(s.rent, share * weeks);
-  const pct = s.rent > 0 ? (ready / s.rent) * 100 : 0;
-  return `<section class="card jar">
-    <div class="jar-top"><span>🏠 房租罐</span><span class="num">${money(ready)} / ${moneyShort(s.rent)}</span></div>
-    <div class="bar thin"><i style="width:${pct}%"></i></div>
-    <div class="sub">${md(next)} 交租${ready >= s.rent ? ' · 已经备好啦 ✓' : ` · 每${WEEKDAYS[weekStart()]}先留 ${money(share)}`}</div>
-  </section>`;
+  return `<div class="row"><span>🏠 房租罐 · ${md(next)} 交</span><span class="num">${ready >= s.rent ? `${moneyShort(s.rent)} 备好啦 ✓` : `${money(ready)} / ${moneyShort(s.rent)}`}</span></div>`;
 }
 
 function summary() {
@@ -195,6 +190,7 @@ function firstMonth() {
 
 // ---------- 页面 ----------
 let tab = 'home';
+let homeTab = 'week'; // 首页明细卡片：这周 / 本月
 function render() {
   coverWeek();
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -213,6 +209,20 @@ function homeView() {
   const list = [...s.monthExp, ...(vi ? s.monthInc.map((i) => ({ ...i, inc: true })) : [])]
     .sort((a, b) => (b.date + b.t).localeCompare(a.date + a.t));
   const wk = s.wk;
+  // 收入不固定时，这周和本月的明细放在同一张卡片里，切换着看
+  const showWeek = wk && homeTab === 'week';
+  const detail = showWeek ? `
+      <div class="row"><span>这周收入</span><span class="num">${money(wk.income)}</span></div>
+      <div class="row"><span>这周固定支出${state.settings.rent ? '（含房租）' : ''}</span><span class="num">−${money(wk.fixed)}</span></div>
+      <div class="row"><span>这周已花</span><span class="num">−${money(wk.spent)}</span></div>
+      ${wk.saved + wk.covered ? `<div class="row"><span>这周存的</span><span class="num">−${money(wk.saved + wk.covered)}</span></div>` : ''}
+      ${wk.covered ? `<div class="row"><span>🐷 小金猪补上</span><span class="num">+${money(wk.covered)}</span></div>` : ''}
+      <div class="row total"><span>这周还剩</span><span class="num">${money(wk.remaining)}</span></div>
+      ${rentJar()}` : `
+      <div class="row"><span>${vi ? `本月已到账收入${s.monthInc.length ? `（${s.monthInc.length} 笔）` : ''}` : '月收入'}</span><span class="num">${money(s.income)}</span></div>
+      <div class="row"><span>固定支出${s.weeks != null ? `（已扣 ${s.weeks} 周）` : ''}</span><span class="num">−${money(s.fixed)}</span></div>
+      <div class="row"><span>本月已花</span><span class="num">−${money(s.spent)}</span></div>
+      ${savedRow(s.saved)}`;
   return `
     <h1>${new Date().getMonth() + 1} 月</h1>
     <section class="card hero">
@@ -224,26 +234,16 @@ function homeView() {
         <b class="num ${neg ? 'neg' : ''}">${money(Math.max(0, s.daily))}</b>
         <span class="label">· ${wk ? '这周' : ''}剩 ${s.daysLeft} 天</span>
       </div>
+      <div class="today label">今天还能花 <b class="num">${money(Math.max(0, s.todayLeft))}</b>${s.spentToday ? ` · 已花 ${money(s.spentToday)}` : ''}</div>
     </section>
     ${hasSetup ? homeWarning(s) : ''}
     ${rentReminder()}
     ${deadlineWarning()}
-    ${rentJar()}
-    ${wk ? `<section class="card rows week">
-      <div class="row head"><span>这周 ${md(wk.start)} – ${md(wk.end)}</span><span class="num">还剩 ${money(wk.remaining)}</span></div>
-      <div class="row"><span>这周收入</span><span class="num">${money(wk.income)}</span></div>
-      <div class="row"><span>这周固定支出${state.settings.rent ? '（含房租）' : ''}</span><span class="num">−${money(wk.fixed)}</span></div>
-      <div class="row"><span>这周已花</span><span class="num">−${money(wk.spent)}</span></div>
-      ${wk.saved + wk.covered ? `<div class="row"><span>这周存的</span><span class="num">−${money(wk.saved + wk.covered)}</span></div>` : ''}
-      ${wk.covered ? `<div class="row"><span>🐷 小金猪补上</span><span class="num">+${money(wk.covered)}</span></div>` : ''}
-    </section>` : ''}
     <section class="card rows">
-      <div class="row"><span>${vi ? `本月已到账收入${s.monthInc.length ? `（${s.monthInc.length} 笔）` : ''}` : '月收入'}</span><span class="num">${money(s.income)}</span></div>
-      <div class="row"><span>固定支出${s.weeks != null ? `（已扣 ${s.weeks} 周）` : ''}</span><span class="num">−${money(s.fixed)}</span></div>
-      <div class="row"><span>本月已花</span><span class="num">−${money(s.spent)}</span></div>
-      ${savedRow(s.saved)}
-      <div class="row"><span>今天额度</span><span class="num">${money(Math.max(0, s.todayBudget))}</span></div>
-      <div class="row"><span>今天已花</span><span class="num">${money(s.spentToday)}</span></div>
+      ${wk ? `<div class="seg mini">
+        <button data-home-tab="week" class="${showWeek ? 'on' : ''}">这周 ${md(wk.start)} – ${md(wk.end)}</button>
+        <button data-home-tab="month" class="${showWeek ? '' : 'on'}">本月</button>
+      </div>` : ''}${detail}
     </section>
     <h2>本月明细</h2>
     <div class="list">
@@ -930,6 +930,7 @@ document.addEventListener('click', async (e) => {
   const d = t.dataset;
 
   if (d.goalTab) { goalTab = d.goalTab; return render(); }
+  if (d.homeTab) { homeTab = d.homeTab; return render(); }
   if (d.goalMove) {
     // 和同一页里相邻的目标交换位置
     const list = goalsIn(goalTab), i = list.findIndex((g) => g.id === d.id), j = i + +d.goalMove;
