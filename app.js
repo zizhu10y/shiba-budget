@@ -173,10 +173,11 @@ function summary() {
     daily: s.remaining / daysLeft, projected };
 }
 // 第一笔数据所在的月份（没有数据就是本月）
-function firstMonth() {
+function firstDay() {
   const dates = [...state.expenses.map((e) => e.date), ...state.incomes.map((i) => i.date), ...state.goals.flatMap((g) => g.deposits.map((d) => d.date)), ...state.piggy.map((p) => p.date)];
-  return dates.length ? dates.sort()[0].slice(0, 7) : thisMonth();
+  return dates.length ? dates.sort()[0] : today();
 }
+const firstMonth = () => firstDay().slice(0, 7);
 
 // ---------- 页面 ----------
 let tab = 'home';
@@ -255,7 +256,7 @@ function homeView() {
 }
 
 // ---------- 总览 ----------
-let ovMode = 'month', ovMonth = thisMonth(), ovYear = new Date().getFullYear();
+let ovMode = 'month', ovMonth = thisMonth(), ovYear = new Date().getFullYear(), ovWeek = null;
 const shiftMonth = (m, n) => { const d = new Date(+m.slice(0, 4), +m.slice(5) - 1 + n, 1); return ymd(d).slice(0, 7); };
 
 // 收入明细：一行汇总，点开看每一笔（只有记了收入的「每周不固定」模式才有）
@@ -324,10 +325,43 @@ function statRows(s, label, savedLabel) {
 }
 
 function overviewView() {
+  const vi = variableIncome();
+  // 收入不固定：周 | 月 | 年（月只看收支和花销，结余看周）；固定收入：月 | 年
+  if (!vi && ovMode === 'week') ovMode = 'month';
   const seg = `<div class="seg ov-seg">
+    ${vi ? `<button data-ov="week" class="${ovMode === 'week' ? 'on' : ''}">周</button>` : ''}
     <button data-ov="month" class="${ovMode === 'month' ? 'on' : ''}">月</button>
     <button data-ov="year" class="${ovMode === 'year' ? 'on' : ''}">年</button></div>`;
-  return `<h1>总览</h1>${seg}` + (ovMode === 'month' ? monthOverview() : yearOverview());
+  return `<h1>总览</h1>${seg}` + { week: weekOverview, month: monthOverview, year: yearOverview }[ovMode]();
+}
+
+// 某一周的收支（总览用）：和首页同一套算法，存钱分存入、取出两行；自动结余不算存钱（它就是这周的结余）
+function weekRangeStats(start) {
+  const end = addDays(start, 6), inR = (x) => x.date >= start && x.date <= end;
+  const exps = state.expenses.filter(inR), incs = state.incomes.filter(inR);
+  const moves = [...state.goals.flatMap((g) => g.deposits), ...state.piggy].filter((x) => x.month !== false && inR(x) && !autoSaved(x));
+  const savedIn = sum(moves.filter((x) => x.amount > 0)), savedOut = -sum(moves.filter((x) => x.amount < 0));
+  const income = sum(incs), fixed = fixedMonthly() * 12 / 52, spent = sum(exps), saved = savedIn - savedOut;
+  const byCat = {};
+  exps.forEach((e) => (byCat[e.cat] = (byCat[e.cat] || 0) + e.amount));
+  return { end, exps, incs, byCat, income, fixed, spent, savedIn, savedOut, saved, remaining: cents(income - fixed - spent - saved) };
+}
+function weekOverview() {
+  const now = weekOf(today()), w = ovWeek || now, cur = w === now;
+  const s = weekRangeStats(w);
+  return `
+    <div class="pager">
+      <button data-ov-week="-1" ${w <= weekOf(firstDay()) ? 'disabled' : ''} aria-label="上一周">‹</button>
+      <strong>${cur ? '这周 ' : ''}${md(w)} – ${md(s.end)}</strong>
+      <button data-ov-week="1" ${cur ? 'disabled' : ''} aria-label="下一周">›</button>
+    </div>
+    <section class="card rows">
+      ${statRows(s, cur ? '目前剩余' : '那周结余', cur ? '这周目前共省下' : '那周共省下')}
+      ${!cur && s.remaining > 0 ? '<div class="row muted-note"><span>结余已经自动存进小金猪</span><span></span></div>' : ''}
+    </section>
+    ${incomeBreakdown(s.incs)}
+    <h2>分类</h2>
+    <div class="list">${catBreakdown(s.byCat, s.exps)}</div>`;
 }
 
 function monthOverview() {
@@ -341,8 +375,13 @@ function monthOverview() {
       <button data-ov-shift="1" ${cur ? 'disabled' : ''} aria-label="下个月">›</button>
     </div>
     <section class="card rows">
+      ${variableIncome() ? `
+      <div class="row"><span>收入${s.monthInc.length ? `（${s.monthInc.length} 笔）` : ''}</span><span class="num">${money(s.income)}</span></div>
+      <div class="row"><span>固定支出（${s.weeks} 周）</span><span class="num">−${money(s.fixed)}</span></div>
+      <div class="row total"><span>日常花销</span><span class="num">${money(s.spent)}</span></div>
+      <div class="row muted-note"><span>按周结算，每周的结余在「周」里看</span><span></span></div>` : `
       ${over ? `<div class="warn">🥺 这个月超支了 ${money(-s.remaining)}</div>` : ''}
-      ${statRows(s, cur ? '目前剩余' : '当月结余', cur ? '本月目前共省下' : '这个月共省下')}
+      ${statRows(s, cur ? '目前剩余' : '当月结余', cur ? '本月目前共省下' : '这个月共省下')}`}
     </section>
     ${incomeBreakdown(s.monthInc)}
     <h2>分类</h2>
@@ -964,10 +1003,11 @@ document.addEventListener('click', async (e) => {
   if (t.classList.contains('sheet-bg')) { if (e.target === t) t.hidden = true; return; }
   if ('close' in d) return (t.closest('.sheet-bg').hidden = true);
   if (d.tab) {
-    if (d.tab === 'overview' && tab !== 'overview') { ovMonth = thisMonth(); ovYear = new Date().getFullYear(); }
+    if (d.tab === 'overview' && tab !== 'overview') { ovMonth = thisMonth(); ovYear = new Date().getFullYear(); ovWeek = null; ovMode = variableIncome() ? 'week' : 'month'; }
     tab = d.tab; return render();
   }
   if (d.ov) { ovMode = d.ov; return render(); }
+  if (d.ovWeek) { ovWeek = addDays(ovWeek || weekOf(today()), 7 * d.ovWeek); return render(); }
   if (d.ovShift) { ovMonth = shiftMonth(ovMonth, +d.ovShift); return render(); }
   if (d.ovYear) { ovYear += +d.ovYear; return render(); }
   if (d.ovMonth) { ovMonth = d.ovMonth; ovMode = 'month'; return render(); }
