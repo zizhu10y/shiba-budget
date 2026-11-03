@@ -264,8 +264,9 @@ body { background-image: var(--pattern); background-size: 200px 200px; }
 .cat-item .n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cat-item .n i { color: var(--muted); font-style: normal; }
 
-/* 首页：今天还能花、这周/本月切换 */
+/* 首页：今天还能花 */
 .hero .today { margin-top: 8px; }
 .hero .today b { color: var(--text); font-weight: 600; }
-.seg.mini { margin-bottom: 8px; }
-.seg.mini button { min-height: 34px; font-size: 14px; }
+.hero .big.short { color: var(--brand); }
+.cover-btn { margin-top: 10px; }
+.link-btn { display: block; margin: 12px auto 0; color: var(--muted); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; min-height: 32px; }
