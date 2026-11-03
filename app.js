@@ -141,13 +141,12 @@ function weekStats(start = weekOf(today())) {
   return { week: true, start, end, incs, exps, income, fixed, spent, saved, covered, remaining, budget: income - fixed + covered,
     daysLeft, spentToday, todayBudget, todayLeft: cents(todayBudget - spentToday), daily: remaining / daysLeft };
 }
-// 这周的钱不够时，要不要从小金猪补由自己决定（首页按钮 → coverWeek(true)）。
-// 补过之后又记了收入或删了花销，补多的钱会自动还回小金猪；但不会自动多补。每周只有一条「补这周的缺口」记录
-function coverWeek(fill = false) {
-  if (!variableIncome()) return;
+// 这周的钱不够时，要不要从小金猪补由自己决定（首页按钮）。补了就不再自动还回去：
+// 之后收入多了，这周省下的钱在一周过完时照样自动存进小金猪。每周只有一条「补这周的缺口」记录，再补就加在上面
+function coverWeek() {
   const wk = weekStats();
-  const short = Math.max(0, -(wk.remaining - wk.covered)); // 不算小金猪补的，这周差多少
-  const need = cents(fill ? Math.min(short, Math.max(0, piggyBalance() + wk.covered)) : Math.min(wk.covered, short));
+  const short = Math.max(0, -wk.remaining);
+  const need = cents(wk.covered + Math.min(short, Math.max(0, piggyBalance())));
   if (need === wk.covered) return;
   const id = 'cover-' + wk.start;
   state.piggy = state.piggy.filter((p) => p.id !== id);
@@ -182,7 +181,6 @@ const firstMonth = () => firstDay().slice(0, 7);
 // ---------- 页面 ----------
 let tab = 'home';
 function render() {
-  coverWeek();
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('fab').hidden = tab !== 'home'; // 记一笔只在首页
   $('#view').innerHTML = { home: homeView, overview: overviewView, goals: goalsView, settings: settingsView }[tab]();
@@ -500,7 +498,7 @@ function homeWarning(s) {
     return `<div class="warn card soft">🐾 这周还差 ${money(-s.remaining)}。${pig > 0 ? '可以等下次收入，或者动用一点积蓄：' : '小金猪也空了，这几天省着点花。'}
       ${pig > 0 ? `<button class="btn soft cover-btn" data-cover>🐷 从小金猪补上 ${money(fill)}</button>` : ''}</div>`;
   }
-  if (s.week && s.covered) return `<div class="warn card soft">🐷 这周从小金猪补了 ${money(s.covered)}，之后记了收入会自动还回去</div>`;
+  if (s.week && s.covered) return `<div class="warn card soft">🐷 这周从小金猪补了 ${money(s.covered)}</div>`;
   if (s.remaining < 0) return `<div class="warn card">🥺 本月已超支 ${money(-s.remaining)}，剩下 ${s.daysLeft} 天尽量别花啦</div>`;
   if (s.todayLeft < 0) return `<div class="warn card soft">🐕 今天超出额度 ${money(-s.todayLeft)}，后面几天要省一点哦</div>`;
   const cap = s.budget - s.saved;
@@ -983,7 +981,7 @@ document.addEventListener('click', async (e) => {
   const d = t.dataset;
 
   if (d.goalTab) { goalTab = d.goalTab; return render(); }
-  if (d.cover !== undefined) { coverWeek(true); render(); return toast('🐷 已从小金猪补上'); }
+  if (d.cover !== undefined) { coverWeek(); render(); return toast('🐷 已从小金猪补上'); }
   if (d.goalMove) {
     // 和同一页里相邻的目标交换位置
     const list = goalsIn(goalTab), i = list.findIndex((g) => g.id === d.id), j = i + +d.goalMove;
